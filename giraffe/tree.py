@@ -6,6 +6,7 @@ from loguru import logger
 
 from giraffe.globals import BACKEND as B
 from giraffe.globals import DEVICE
+from giraffe.lib_types import Tensor
 from giraffe.node import Node, OperatorNode, ValueNode, check_if_both_types_same_node_variant
 from giraffe.utils import Pickle
 
@@ -312,7 +313,8 @@ class Tree:
                     return node
         raise ValueError("No node found that complies to the constraints")
 
-    def get_unique_value_node_ids(self):
+    @property
+    def unique_value_node_ids(self):
         """
         Get the unique IDs of all value nodes in the tree.
 
@@ -320,6 +322,14 @@ class Tree:
             A list of unique IDs from all value nodes
         """
         return list(set([node.id for node in self.nodes["value_nodes"]]))
+
+    @property
+    def value_nodes(self):
+        return self.nodes["value_nodes"]
+
+    @property
+    def op_nodes(self):
+        return self.nodes["op_nodes"]
 
     def save_tree_architecture(self, output_path):  # TODO: needs adjustment for weighted node
         """
@@ -376,7 +386,9 @@ class Tree:
             value_node.value = current_tensors[node_id]
         return current_tensors
 
-    def do_pred_on_another_tensors(self, preds_directory=None, current_tensors=None, return_tree=False):
+    def do_pred_on_another_tensors(
+        self, preds_directory: None | str | Path = None, current_tensors: None | dict = None, return_tree=False
+    ) -> tuple[None | Tensor, "Tree"] | Tensor:
         assert not all(
             [current_tensors is not None, preds_directory is not None]
         ), "Either preds directory or current tensors needs to be set, not both"

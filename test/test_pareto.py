@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 # Import the functions to test
-from giraffe.pareto import maximize, minimize, paretoset
+from giraffe.pareto import _get_optimal_point_based_on_list_of_objective_functions, maximize, minimize, paretoset, sort_by_optimal_point_proximity
 
 
 def test_simple_maximize():
@@ -40,18 +40,32 @@ def test_mixed_objectives():
     assert result == [False, False, False, True]
 
 
-def test_mixed_objectives_multiple_optimal():
+@pytest.mark.parametrize(
+    "points, objectives, expected_mask",
+    [
+        (
+            np.array([[0.59, 0.937, 5.0], [0.597, 0.935, 5.0], [0.585, 0.94, 5.0], [0.586, 0.939, 5.0]]),
+            [maximize, maximize, minimize],
+            [True, True, True, True],
+        ),
+        (
+            np.array(
+                [
+                    [4, 1],  # optimal, highest maximize
+                    [3, 0],  # best minimize
+                    [3, 3],  # dominated
+                    [4, 1],  # the same as first
+                ]
+            ),
+            [maximize, minimize],
+            [True, True, False, True],
+        ),
+    ],
+)
+def test_mixed_objectives_multiple_optimal(points, objectives, expected_mask):
     """Test with mix of maximize and minimize objectives where multiple points are optimal"""
-    points = np.array(
-        [
-            [4, 1],  # optimal, highest maximize
-            [3, 0],  # best minimize
-            [3, 3],  # dominated
-            [4, 1],  # the same as first
-        ]
-    )
-    result = paretoset(points, [maximize, minimize])
-    assert result == [True, True, False, True]
+    result = paretoset(points, objectives)
+    assert result == expected_mask
 
 
 def test_identical_points():
@@ -108,3 +122,94 @@ def test_none_dominated():
     points = np.array([[4, 1], [3, 2], [2, 3], [1, 4]])
     result = paretoset(points, [maximize, maximize])
     assert result == [True, True, True, True]
+
+
+## test helpers
+@pytest.mark.parametrize(
+    "objectives, optimal_point",
+    [
+        ([minimize, minimize, maximize], [0, 0, 1]),
+    ],
+)
+def test_get_optimal_point_based_on_list_of_objective_functions(objectives, optimal_point):
+    opt_point = np.array(optimal_point)
+    returned = _get_optimal_point_based_on_list_of_objective_functions(objectives)
+    assert np.array_equal(opt_point, returned)
+
+
+@pytest.mark.parametrize(
+    "points, objectives, expected_indices",
+    [
+        (
+            np.array(
+                [
+                    [0.2, 0.3, 0.4],
+                    [0.5, 0.5, 0.4],
+                    [0.0, 0.1, 0.1],
+                ]
+            ),
+            [minimize, minimize, minimize],
+            [2, 0, 1],
+        ),
+        (
+            np.array(
+                [
+                    [0.8, 0.7, 0.9],
+                    [0.9, 0.9, 0.8],
+                    [1.0, 0.8, 1.0],
+                ]
+            ),
+            [maximize, maximize, maximize],
+            [2, 1, 0],
+        ),
+        (
+            np.array(
+                [
+                    [0.5, 0.5],
+                    [0.1, 0.9],
+                    [0.9, 0.1],
+                ]
+            ),
+            [minimize, maximize],
+            [1, 0, 2],
+        ),
+        # Edge cases
+        (
+            np.array([[0.5, 0.5]]),
+            [minimize, minimize],
+            [0],
+        ),
+        (
+            np.array(
+                [
+                    [0.0, 0.0],
+                    [0.0, 0.0],
+                    [1.0, 1.0],
+                ]
+            ),
+            [minimize, minimize],
+            [0, 1, 2],
+        ),
+    ],
+)
+def test_sort_by_optimal_point_proximity(points, objectives, expected_indices):
+    _, ret_indices = sort_by_optimal_point_proximity(points, objectives)
+    assert np.array_equal(ret_indices, expected_indices)
+
+
+def test_sort_by_optimal_point_out_of_range():
+    points = np.array([[1.2, 0.5], [0.5, 1.2]])
+    with pytest.raises(AssertionError):
+        sort_by_optimal_point_proximity(points, [minimize, minimize])
+
+
+def test_sort_by_optimal_point_negative_values():
+    points = np.array([[-0.2, 0.5], [0.5, -0.1]])
+    with pytest.raises(AssertionError):
+        sort_by_optimal_point_proximity(points, [minimize, minimize])
+
+
+def test_sort_by_optimal_point_wrong_objectives():
+    points = np.array([[0.2, 0.5]])
+    with pytest.raises(AssertionError):
+        sort_by_optimal_point_proximity(points, [minimize, minimize, minimize])

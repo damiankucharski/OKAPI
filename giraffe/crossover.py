@@ -2,9 +2,10 @@ import numpy as np
 from loguru import logger
 
 from giraffe.tree import Tree
+from giraffe.utils import _euclidean_distances
 
 
-def tournament_selection_indexes(fitnesses: np.ndarray, tournament_size: int = 5) -> np.ndarray:
+def tournament_selection_indexes(fitnesses: np.ndarray, tournament_size: int = 5, optimal_point: np.ndarray | None = None) -> np.ndarray:
     """
     Selects parent indices for crossover using tournament selection.
 
@@ -23,11 +24,10 @@ def tournament_selection_indexes(fitnesses: np.ndarray, tournament_size: int = 5
         ValueError: If tournament_size is too large relative to population size
     """
     logger.debug(f"Running tournament selection with tournament size {tournament_size}")
-    assert len(fitnesses.shape) == 1
 
-    if tournament_size >= (len(fitnesses) - 1):
+    if tournament_size > (len(fitnesses)):
         logger.error(f"Tournament size {tournament_size} is too large for population size {len(fitnesses)}")
-        raise ValueError(f"Size of the tournament should be at least 1 less than number of participans but{len(fitnesses)=} and {tournament_size=}")
+        raise ValueError(f"Size of the tournament should be at most equal to number of participans but {len(fitnesses)=} and {tournament_size=}")
 
     if len(fitnesses) < (2 * tournament_size):
         logger.warning(
@@ -35,9 +35,20 @@ def tournament_selection_indexes(fitnesses: np.ndarray, tournament_size: int = 5
             "The population should be at least twice as large as tournament for more stable parent selection"
         )
 
-    candidates = np.random.choice(fitnesses, size=(2, tournament_size))
-    logger.trace(f"Tournament candidates fitness values: {candidates}")
-    selected = np.argmax(candidates, axis=1).ravel()
+    if optimal_point is None:
+        optimal_point = np.ones(shape=(fitnesses.shape[-1],))
+    assert len(optimal_point.shape) == 1 and fitnesses.shape[-1] == optimal_point.shape[-1], "Shapes for fitnesses and optimal point do not match"
+
+    selected: list | np.ndarray = []
+    for _ in range(2):
+        candidates_idx = np.random.choice(np.arange(len(fitnesses)), size=(tournament_size,), replace=False)
+        candidates_fitnesses = fitnesses[candidates_idx]
+        distances = _euclidean_distances(candidates_fitnesses, optimal_point)
+        best_idx = np.argmin(distances)
+        assert isinstance(selected, list)
+        selected.append(candidates_idx[best_idx])
+    selected = np.array(selected)
+
     assert selected.shape == (2,)
 
     logger.debug(f"Selected parent indices: {selected}")

@@ -5,6 +5,8 @@ import pytest
 
 from giraffe.backend.numpy_backend import NumpyBackend as B
 from giraffe.node import (
+    CloseThresholdNode,
+    FarThresholdNode,
     MaxNode,
     MeanNode,
     MinNode,
@@ -375,6 +377,70 @@ def test_max_tree(max_tree):
     assert np.array_equal(evaluation_D, np.array([[4, 4], [5, 5]]))
 
 
+@pytest.fixture
+def threshold_tree_close():
+    a = np.array([[0.2, 0.2], [0.3, 0.3]])
+    c = np.array([[0.3, 0.3], [0.4, 0.4]])
+    d = np.array([[0.4, 0.4], [0.5, 0.5]])
+
+    nset = {
+        "A": ValueNode(None, a, 1),
+        "C": ValueNode(None, c, 2),
+        "D": ValueNode(None, d, 3),
+    }
+
+    nset["B"] = CloseThresholdNode([nset["C"], nset["D"]], 0.4)  # type: ignore
+    nset["A"].add_child(nset["B"])
+
+    return nset
+
+
+def test_threshold_close_tree(threshold_tree_close):
+    threshold_tree_close["A"].calculate()
+
+    evaluation_A = threshold_tree_close["A"].evaluation
+    evaluation_C = threshold_tree_close["C"].evaluation
+    evaluation_D = threshold_tree_close["D"].evaluation
+
+    expected = np.array([[0.4, 0.4], [0.4, 0.4]])
+
+    assert np.array_equal(evaluation_A, expected)
+    assert np.array_equal(evaluation_C, np.array([[0.3, 0.3], [0.4, 0.4]]))
+    assert np.array_equal(evaluation_D, np.array([[0.4, 0.4], [0.5, 0.5]]))
+
+
+@pytest.fixture
+def threshold_tree_far():
+    a = np.array([[0.2, 0.2], [0.3, 0.3]])
+    c = np.array([[0.3, 0.3], [0.4, 0.4]])
+    d = np.array([[0.4, 0.4], [0.5, 0.5]])
+
+    nset = {
+        "A": ValueNode(None, a, 1),
+        "C": ValueNode(None, c, 2),
+        "D": ValueNode(None, d, 3),
+    }
+
+    nset["B"] = FarThresholdNode([nset["C"], nset["D"]], 0.4)  # type: ignore
+    nset["A"].add_child(nset["B"])
+
+    return nset
+
+
+def test_threshold_far_tree(threshold_tree_far):
+    threshold_tree_far["A"].calculate()
+
+    evaluation_A = threshold_tree_far["A"].evaluation
+    evaluation_C = threshold_tree_far["C"].evaluation
+    evaluation_D = threshold_tree_far["D"].evaluation
+
+    expected = np.array([[0.2, 0.2], [0.3, 0.3]])
+
+    assert np.array_equal(evaluation_A, expected)
+    assert np.array_equal(evaluation_C, np.array([[0.3, 0.3], [0.4, 0.4]]))
+    assert np.array_equal(evaluation_D, np.array([[0.4, 0.4], [0.5, 0.5]]))
+
+
 @pytest.mark.parametrize(
     "type_1, type_2, expected",
     [
@@ -407,6 +473,11 @@ def test_check_both_value(type_1, type_2, expected):
         (MaxNode, MeanNode, True),
         (MeanNode, MinNode, True),
         (MinNode, MeanNode, True),
+        (FarThresholdNode, MeanNode, True),
+        (FarThresholdNode, MaxNode, True),
+        (FarThresholdNode, MinNode, True),
+        (FarThresholdNode, WeightedMeanNode, True),
+        (FarThresholdNode, ValueNode, False),  # No need to test CloseThresholdNode as it has the same implementation
     ],
 )
 def test_check_both_operators(type_1, type_2, expected):

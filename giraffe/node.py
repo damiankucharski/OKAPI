@@ -451,9 +451,101 @@ class MinNode(OperatorNode):
 class ThresholdNode(OperatorNode):
     """
     Chooses values closest (or furthest away) from the provided threshold value)
+    It does not select "whole samples" like the other nodes would in general.
+    If the shape of x (excluding the batch dimension) is non-flat, for example
+    [
+        [
+            [0.2, 0.3],
+            [0.3, 0.3]
+        ],
+        [
+            [0.29, 0.5],
+            [0.5, 0.5]
+        ],
+    ]
+    And threshold == 0.3, for "close" option it will select 3 out of 4 values from first batch
+    element, and 1 out of the second batch element, resulting in the following output:
+    [
+        [0.29, 0.3],
+        [0.3, 0.3]
+    ]
     """
 
-    pass
+    def __init__(self, children: Optional[Sequence[ValueNode]], threshold: float, close=True):
+        assert threshold >= 0 or threshold <= 1, f"Threshold must be between 0 and 1 (inclusive) but is equal {threshold}"
+        super().__init__(children)
+        self.close = close
+        self.strclose = "Close" if self.close else "Far"
+        self.threshold = threshold
+
+    def __str__(self) -> str:
+        return f"ThresholdNode{self.strclose} with Threshold = {self.threshold:.2f}"
+
+    def copy(self):
+        return ThresholdNode(None, self.threshold, self.close)
+
+    @property
+    def code(self) -> str:
+        return f"TH{self.strclose}".upper()
+
+    def op(self, x):
+        orig_shape = B.shape(x)
+        adjusted = (x - self.threshold) ** 2
+        adjusted = B.reshape(adjusted, (x.shape[0], -1))
+
+        if self.close:
+            ixes = B.argmin(adjusted, axis=0)
+        else:
+            ixes = B.argmax(adjusted, axis=0)
+
+        x_reshaped = B.reshape(x, (x.shape[0], -1))
+        col_indices = B.tensor(np.arange(B.shape(x_reshaped)[1]).tolist())
+        # Select the value from the row with min/max squared distance in each "column - place"
+        x_selected = x_reshaped[ixes, col_indices]
+        x = B.reshape(x_selected, orig_shape[1:])
+
+        return x
+
+    def adjust_params(self):
+        return
+
+    @staticmethod
+    def create_node(children):
+        raise NotImplementedError("This node is not supposed to be initialized, use child classes instead.")
+
+
+class CloseThresholdNode(ThresholdNode):
+    """
+    Chooses values closest (or furthest away) from the provided threshold value)
+    """
+
+    def __init__(self, children: Optional[Sequence[ValueNode]], threshold: float):
+        super().__init__(children, threshold, True)
+
+    def copy(self):
+        return CloseThresholdNode(None, self.threshold)
+
+    @staticmethod
+    def create_node(children):
+        t = np.random.rand()
+        return CloseThresholdNode(children, t)
+
+
+class FarThresholdNode(ThresholdNode):
+    """
+    Chooses values closest (or furthest away) from the provided threshold value)
+    """
+
+    def __init__(self, children: Optional[Sequence[ValueNode]], threshold: float):
+        super().__init__(children, threshold, False)
+
+    def copy(self):
+        return FarThresholdNode(None, self.threshold)
+
+    @staticmethod
+    def create_node(children):
+        t = np.random.rand()
+        return FarThresholdNode(children, t)
 
 
 def check_if_both_types_values(node1, node2):

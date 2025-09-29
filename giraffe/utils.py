@@ -1,6 +1,7 @@
 import os
 import pickle
 
+import numpy as np
 from loguru import logger
 
 
@@ -105,3 +106,11 @@ def mark_paths(list_of_paths) -> tuple[list[str | None], bool]:
             marked_paths.append(None)
     all_same = all(item == marked_paths[0] for item in marked_paths)
     return marked_paths, all_same
+
+
+def _euclidean_distances(points, point):
+    point = point.reshape(1, -1)
+    squared_diff = (points - point) ** 2
+    distances = np.sqrt(np.sum(squared_diff, axis=1))
+
+    return distances

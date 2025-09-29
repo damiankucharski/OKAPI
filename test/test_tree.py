@@ -255,3 +255,41 @@ def test_save_and_load_tree_weighted_tree(weighted_mean_tree):
     for tree_node, loaded_tree_node in zip(tree.nodes["value_nodes"], loaded_tree.nodes["value_nodes"], strict=False):
         assert tree_node.id == loaded_tree_node.id
         np.testing.assert_equal(tree_node.value, loaded_tree_node.value)
+
+
+@pytest.fixture
+def duplicated_nodes_set():
+    def x():
+        return np.array([[2, 2], [3, 3]])
+
+    nset = {
+        "A": ValueNode(None, x(), "A"),
+        "B": OperatorNode(None),
+        "D": ValueNode(None, x(), "A"),
+        "E": ValueNode(None, x(), "D"),
+        "F": ValueNode(None, x(), "C"),
+        "G": ValueNode(None, x(), "B"),
+        "H": ValueNode(None, x(), "B"),
+    }
+
+    return nset
+
+
+@pytest.fixture
+def duplicated_values_tree(duplicated_nodes_set) -> Tree:
+    duplicated_nodes_set["A"].add_child(duplicated_nodes_set["B"])
+    duplicated_nodes_set["B"].add_child(duplicated_nodes_set["D"])
+    duplicated_nodes_set["B"].add_child(duplicated_nodes_set["E"])
+    duplicated_nodes_set["B"].add_child(duplicated_nodes_set["G"])
+
+    duplicated_nodes_set["B"].add_child(duplicated_nodes_set["F"])
+    duplicated_nodes_set["B"].add_child(duplicated_nodes_set["H"])
+
+    tree1 = Tree.create_tree_from_root(duplicated_nodes_set["A"])
+
+    return tree1
+
+
+def test_unique_value_node_ids(duplicated_values_tree):
+    unique_ids = duplicated_values_tree.unique_value_node_ids
+    assert sorted(unique_ids) == ["A", "B", "C", "D"]

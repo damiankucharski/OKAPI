@@ -20,7 +20,7 @@ class Backend:
     _current_backend: Type[BackendInterface] = NumpyBackend
 
     @classmethod
-    def set_backend(cls, backend_name):  # TODO: Add option to set backend by providing class instead
+    def set_backend(cls, backend_name: str):  # TODO: Add option to set backend by providing class instead
         """
         Set the active tensor backend by name.
 

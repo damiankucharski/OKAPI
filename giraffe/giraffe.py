@@ -4,6 +4,7 @@ from typing import Callable, Iterable, List, Sequence, Type, Union
 
 import numpy as np
 import numpy.typing as npt
+import tqdm
 from loguru import logger
 
 import giraffe.lib_types as lib_types
@@ -16,8 +17,9 @@ from giraffe.globals import DEVICE, set_postprocessing_function
 from giraffe.lib_types import Tensor
 from giraffe.mutation import get_allowed_mutations
 from giraffe.node import OperatorNode
-from giraffe.operators import MAX, MEAN, MIN, WEIGHTED_MEAN
-from giraffe.population import choose_pareto_then_sorted, initialize_individuals
+from giraffe.operators import CLOSE_THRESHOLD, FAR_THRESHOLD, MAX, MEAN, MIN, WEIGHTED_MEAN
+from giraffe.pareto import _get_optimal_point_based_on_list_of_objective_functions, maximize
+from giraffe.population import choose_pareto, choose_pareto_then_proximity, initialize_individuals
 from giraffe.tree import Tree
 from giraffe.utils import first_uniques_mask, mark_paths
 
@@ -51,14 +53,16 @@ class Giraffe:
     def __init__(
         self,
         preds_source: Union[Path, str, Iterable[Path], Iterable[str]],
-        gt_path: Union[Path, str],
+        gt_path: Union[Path, str, Iterable[Path], Iterable[str]],
         population_size: int,
         population_multiplier: int,
         tournament_size: int,
-        fitness_function: Callable[[Tree, lib_types.Tensor], float] = average_precision_fitness,
-        allowed_ops: Sequence[Type[OperatorNode]] = (MEAN, MIN, MAX, WEIGHTED_MEAN),
+        minimize_node_count: bool = True,
+        objective_functions: Sequence[Callable[[Tree, lib_types.Tensor], float]] = (average_precision_fitness,),
+        objectives: Sequence[Callable[[float, float], bool]] = (maximize,),
+        allowed_ops: Sequence[Type[OperatorNode]] = (MEAN, MIN, MAX, WEIGHTED_MEAN, FAR_THRESHOLD, CLOSE_THRESHOLD),
         callbacks: Iterable[Callback] = tuple(),
-        backend: Union[Backend, None] = None,
+        backend: Union[str, None] = None,
         seed: int = 0,
         postprocessing_function=None,
     ):
@@ -67,11 +71,13 @@ class Giraffe:
 
         Args:
             preds_source: Source of model predictions, can be a path to directory or iterable of paths
-            gt_path: Path to ground truth data
+            gt_path: Path to ground truth data, can be a single path or iterable of paths. Should match preds_source by order
             population_size: Size of the population to evolve
             population_multiplier: Factor determining how many additional trees to generate
             tournament_size: Number of trees to consider in tournament selection
-            fitness_function: Function to evaluate fitness of trees
+            minimize_node_count: Whether the pareto frontier models should also consider node count.
+            objective_functions: Functions that calculate the fitnesses that are to be optimized
+            objectives: Functions that copare two fitnesses and return True if first is better than second. Usually maximize or minimize
             allowed_ops: Sequence of operator node types that can be used in trees
             callbacks: Iterable of callback objects for monitoring/modifying evolution
             backend: Optional backend implementation for tensor operations
@@ -89,7 +95,14 @@ class Giraffe:
         self.population_size = population_size
         self.population_multiplier = population_multiplier
         self.tournament_size = tournament_size
-        self.fitness_function = fitness_function
+        self.minimize_node_count = minimize_node_count
+        self.seed = seed
+
+        self.objective_functions = objective_functions
+        self.objectives = objectives
+        assert len(objectives) == len(objective_functions), "The number of (optimization) objectives and objective functions is not the same"
+        self.optimal_point = _get_optimal_point_based_on_list_of_objective_functions(self.objectives)
+
         self.callbacks = callbacks
         self.allowed_ops = allowed_ops
 
@@ -141,8 +154,9 @@ class Giraffe:
         if trees is None:
             trees = self.population
         logger.debug(f"Calculating fitness for {len(trees)} trees")
-        fitnesses = np.array([self.fitness_function(tree, self.gt_tensor) for tree in trees])
-        logger.trace(f"Fitness stats - min: {fitnesses.min():.4f}, max: {fitnesses.max():.4f}, mean: {fitnesses.mean():.4f}")
+        fitnesses = np.zeros(shape=(len(trees), len(self.objective_functions)))
+        for ix, objective_function in enumerate(self.objective_functions):
+            fitnesses[:, ix] = np.array([objective_function(tree, self.gt_tensor) for tree in trees])
         return fitnesses
 
     def run_iteration(self):
@@ -156,33 +170,44 @@ class Giraffe:
         4. Removes duplicate trees from the population
         """
         logger.info("Starting evolution iteration")
-        self.fitnesses = self._calculate_fitnesses(self.population)  # this generally unnecessarily happens again
+        if self.fitnesses is None:
+            self.fitnesses = self._calculate_fitnesses(self.population).round(
+                3
+            )  # this generally unnecessarily happens again > probably not with the if
 
         logger.debug("Performing tournament selection and crossover")
+        assert self.fitnesses.shape[0] == len(self.population)
         crossover_count = self._perform_crossovers(self.fitnesses)
+        assert self.fitnesses.shape[0] == len(self.population)
         logger.debug(f"Performed {crossover_count} crossover operations")
 
         logger.debug("Applying mutations")
         mutation_count = self._mutate_additional_population()
+        assert self.fitnesses.shape[0] == len(self.population)
         logger.info(f"Applied {mutation_count} mutations")
 
         joined_population = np.array(self.population + self.additional_population)  # maybe worth it to calculated fitnesses first?
         codes = np.array([tree.__repr__() for tree in joined_population])
         mask = first_uniques_mask(codes)
         self.population = list(joined_population[mask])
-        self.fitnesses = self._calculate_fitnesses(self.population)  # comm above, recalculating some fitnesses this way
+        self.fitnesses = self._calculate_fitnesses(self.population).round(3)
+        assert self.fitnesses.shape[0] == len(self.population)
 
         logger.debug(f"Removed {len(joined_population) - sum(mask)} duplicate trees")
         logger.debug(f"New population size: {len(self.population)}")
 
-        self.population, self.fitnesses = choose_pareto_then_sorted(self.population, self.fitnesses, self.population_size)
+        self.population, self.fitnesses = choose_pareto_then_proximity(
+            self.population, self.fitnesses, self.objectives, self.population_size, self.minimize_node_count
+        )
+
+        assert self.fitnesses.shape[0] == len(self.population)
 
         self.additional_population = []
 
     def _perform_crossovers(self, fitnesses: npt.NDArray[np.float64]):
         crossover_count = 0
         while len(self.additional_population) < (self.population_multiplier * self.population_size):
-            idx1, idx2 = tournament_selection_indexes(fitnesses, self.tournament_size)
+            idx1, idx2 = tournament_selection_indexes(fitnesses, self.tournament_size, self.optimal_point)
             parent_1, parent_2 = self.population[idx1], self.population[idx2]
             new_tree_1, new_tree_2 = crossover(parent_1, parent_2)
             self.additional_population += [new_tree_1, new_tree_2]
@@ -217,7 +242,7 @@ class Giraffe:
         logger.info(f"Starting evolution with {iterations} iterations")
         self._call_hook("on_evolution_start")
 
-        for i in range(iterations):
+        for i in tqdm.tqdm(range(iterations)):
             logger.info(f"Generation {i + 1}/{iterations}")
             self._call_hook("on_generation_start")  # possibly move to run_iteration instead
             self.run_iteration()
@@ -285,6 +310,8 @@ class Giraffe:
                         gt_tensor = B.load(path)
                     else:
                         gt_tensor = B.concat([gt_tensor, B.load(path, device=DEVICE)])  # type: ignore
+            else:
+                gt_tensor = B.load(gt_path)
         elif hasattr(gt_path, "__iter__"):
             for path in gt_path:
                 if gt_tensor is None:
@@ -339,3 +366,15 @@ class Giraffe:
                 raise ValueError(f"Ground truth tensor has different shape than input tensors: {shapes[0]} != {B.shape(self.gt_tensor)}")
 
         logger.info("Input validation successful")
+
+    @property
+    def pareto_trees(self) -> List[Tree]:
+        assert isinstance(self.fitnesses, np.ndarray), "Fitnesses not yet initialized. Did you run any iteration?"
+        all_pareto_trees, _ = choose_pareto(self.population, self.fitnesses, len(self.population), self.objectives, self.minimize_node_count)
+        return all_pareto_trees
+
+    @property
+    def pareto_fitnesses(self) -> np.ndarray:
+        assert isinstance(self.fitnesses, np.ndarray), "Fitnesses not yet initialized. Did you run any iteration?"
+        _, pareto_fitnesses = choose_pareto(self.population, self.fitnesses, len(self.population), self.objectives, self.minimize_node_count)
+        return pareto_fitnesses

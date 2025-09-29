@@ -84,11 +84,8 @@ def another_medium_tree(models, id_values):
 def test_tournament_selection_indexes():
     """Test the tournament selection function."""
     # Create fitnesses array
-    fitnesses = np.array([0.1, 0.5, 0.3, 0.8, 0.2])
-    tournament_size = 3
-
-    # Set seed for reproducibility
-    np.random.seed(42)
+    fitnesses = np.array([0.1, 0.5, 0.3, 0.8, 0.2]).reshape(-1, 1)
+    tournament_size = 5
 
     # Run tournament selection
     selected = tournament_selection_indexes(fitnesses, tournament_size)
@@ -98,7 +95,7 @@ def test_tournament_selection_indexes():
 
     # Check that the indexes are within the valid range
     assert np.all(selected >= 0)
-    assert np.all(selected < len(fitnesses))
+    assert np.array_equal(selected, [3, 3])
 
 
 def test_tournament_selection_indexes_validation():
