@@ -3,9 +3,9 @@ from typing import Literal
 
 import torch
 
-from giraffe.globals import BACKEND as B
-from giraffe.lib_types import Tensor
-from giraffe.tree import Tree
+from okapi.globals import BACKEND as B
+from okapi.lib_types import Tensor
+from okapi.tree import Tree
 
 
 def _infer_num_classes(gt: torch.Tensor, task: str) -> int:

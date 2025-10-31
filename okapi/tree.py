@@ -4,18 +4,18 @@ from typing import Self, Tuple, cast
 import numpy as np
 from loguru import logger
 
-from giraffe.globals import BACKEND as B
-from giraffe.globals import DEVICE
-from giraffe.lib_types import Tensor
-from giraffe.node import Node, OperatorNode, ValueNode, check_if_both_types_same_node_variant
-from giraffe.utils import Pickle
+from okapi.globals import BACKEND as B
+from okapi.globals import DEVICE
+from okapi.lib_types import Tensor
+from okapi.node import Node, OperatorNode, ValueNode, check_if_both_types_same_node_variant
+from okapi.utils import Pickle
 
 
 class Tree:
     """
     Represents a computational tree structure for model ensemble composition.
 
-    The Tree class is a central component in GIRAFFE, representing a hierarchical structure
+    The Tree class is a central component in OKAPI, representing a hierarchical structure
     of nodes that define how different models are combined. Each tree has a ValueNode as its root,
     and may contain multiple ValueNodes and OperatorNodes arranged in a tree structure.
 

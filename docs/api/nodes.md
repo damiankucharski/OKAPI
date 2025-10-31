@@ -1,16 +1,16 @@
 # Nodes API
 
-Nodes are the fundamental building blocks of trees in GIRAFFE. This section documents the different types of nodes available.
+Nodes are the fundamental building blocks of trees in OKAPI. This section documents the different types of nodes available.
 
 ## Base Node Class
 
-The `Node` class is the base class for all node types in GIRAFFE.
+The `Node` class is the base class for all node types in OKAPI.
 
 ```python
-from giraffe.node import Node
+from okapi.node import Node
 ```
 
-::: giraffe.node.Node
+::: okapi.node.Node
     options:
       show_root_heading: false
       show_source: true
@@ -20,10 +20,10 @@ from giraffe.node import Node
 The `ValueNode` class represents a node that holds tensor data (model predictions).
 
 ```python
-from giraffe.node import ValueNode
+from okapi.node import ValueNode
 ```
 
-::: giraffe.node.ValueNode
+::: okapi.node.ValueNode
     options:
       show_root_heading: false
       show_source: true
@@ -33,10 +33,10 @@ from giraffe.node import ValueNode
 The `OperatorNode` class is the base class for all operation nodes that define how to combine tensor data.
 
 ```python
-from giraffe.node import OperatorNode
+from okapi.node import OperatorNode
 ```
 
-::: giraffe.node.OperatorNode
+::: okapi.node.OperatorNode
     options:
       show_root_heading: false
       show_source: true
@@ -47,42 +47,42 @@ Various specific operator node implementations are provided:
 
 ### Mean Node
 
-::: giraffe.node.MeanNode
+::: okapi.node.MeanNode
     options:
       show_root_heading: false
       show_source: true
 
 ### Weighted Mean Node
 
-::: giraffe.node.WeightedMeanNode
+::: okapi.node.WeightedMeanNode
     options:
       show_root_heading: false
       show_source: true
 
 ### Min Node
 
-::: giraffe.node.MinNode
+::: okapi.node.MinNode
     options:
       show_root_heading: false
       show_source: true
 
 ### Max Node
 
-::: giraffe.node.MaxNode
+::: okapi.node.MaxNode
     options:
       show_root_heading: false
       show_source: true
 
 ## Utility Functions
 
-::: giraffe.node.check_if_both_types_values
+::: okapi.node.check_if_both_types_values
     options:
       show_source: true
 
-::: giraffe.node.check_if_both_types_operators
+::: okapi.node.check_if_both_types_operators
     options:
       show_source: true
 
-::: giraffe.node.check_if_both_types_same_node_variant
+::: okapi.node.check_if_both_types_same_node_variant
     options:
       show_source: true

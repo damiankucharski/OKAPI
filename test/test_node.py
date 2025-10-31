@@ -3,8 +3,8 @@ from unittest import mock
 import numpy as np
 import pytest
 
-from giraffe.backend.numpy_backend import NumpyBackend as B
-from giraffe.node import (
+from okapi.backend.numpy_backend import NumpyBackend as B
+from okapi.node import (
     CloseThresholdNode,
     FarThresholdNode,
     MaxNode,

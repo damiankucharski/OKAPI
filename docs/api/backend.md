@@ -1,16 +1,16 @@
 # Backend API
 
-This section documents the backend components of GIRAFFE, which handle tensor operations.
+This section documents the backend components of OKAPI, which handle tensor operations.
 
 ## Backend Interface
 
 The abstract interface that all backend implementations must follow.
 
 ```python
-from giraffe.backend.backend_interface import BackendInterface
+from okapi.backend.backend_interface import BackendInterface
 ```
 
-::: giraffe.backend.backend_interface.BackendInterface
+::: okapi.backend.backend_interface.BackendInterface
     options:
       show_source: true
 
@@ -19,10 +19,10 @@ from giraffe.backend.backend_interface import BackendInterface
 Factory class for managing tensor backends.
 
 ```python
-from giraffe.backend.backend import Backend
+from okapi.backend.backend import Backend
 ```
 
-::: giraffe.backend.backend.Backend
+::: okapi.backend.backend.Backend
     options:
       show_source: true
 
@@ -31,10 +31,10 @@ from giraffe.backend.backend import Backend
 Functions and variables for configuring the backend.
 
 ```python
-from giraffe.globals import BACKEND, set_backend, get_backend, DEVICE
+from okapi.globals import BACKEND, set_backend, get_backend, DEVICE
 ```
 
-::: giraffe.globals
+::: okapi.globals
     options:
       members:
         - BACKEND

@@ -1,6 +1,6 @@
-from giraffe.globals import BACKEND as B
-from giraffe.globals import set_postprocessing_function
-from giraffe.lib_types import Tensor
+from okapi.globals import BACKEND as B
+from okapi.globals import set_postprocessing_function
+from okapi.lib_types import Tensor
 
 
 def scale_vector_to_sum_1(tensor: Tensor):

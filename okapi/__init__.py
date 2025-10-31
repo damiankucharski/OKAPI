@@ -1,7 +1,7 @@
 """
-GIRAFFE: Genetic Programming for Ensemble Model Fusion
+OKAPI: Genetic Programming for Ensemble Model Fusion
 
-GIRAFFE is a Python library that uses genetic programming to evolve optimal
+OKAPI is a Python library that uses genetic programming to evolve optimal
 ensembles of machine learning models for classification tasks. It combines
 the predictions of multiple models into a single, more accurate prediction
 by evolving tree structures representing different fusion strategies.
@@ -20,11 +20,11 @@ import sys
 from loguru import logger
 
 # Configure loguru logger
-log_level = os.environ.get("GIRAFFE_LOG_LEVEL", "INFO")
+log_level = os.environ.get("OKAPI_LOG_LEVEL", "INFO")
 logger.remove()  # Remove default handler
 logger.add(sys.stderr, level=log_level)
 
 
-from giraffe.giraffe import Giraffe  # noqa E402
+from okapi.okapi import Okapi  # noqa E402
 
-logger.trace(f"{Giraffe}")
+logger.trace(f"{Okapi}")

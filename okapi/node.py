@@ -3,9 +3,9 @@ from typing import List, Optional, Sequence, TypeVar, Union, cast
 import numpy as np
 from loguru import logger
 
-from giraffe.globals import BACKEND as B
-from giraffe.globals import postprocessing_function as PF
-from giraffe.lib_types import Tensor
+from okapi.globals import BACKEND as B
+from okapi.globals import postprocessing_function as PF
+from okapi.lib_types import Tensor
 
 T = TypeVar("T", bound="Node")
 

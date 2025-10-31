@@ -1,7 +1,7 @@
 import numpy as np
 from loguru import logger
 
-from giraffe.backend.backend_interface import BackendInterface
+from okapi.backend.backend_interface import BackendInterface
 
 
 class NumpyBackend(BackendInterface):

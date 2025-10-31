@@ -3,7 +3,7 @@ from typing import Callable, Sequence
 import matplotlib.pyplot as plt
 import numpy as np
 
-from giraffe.utils import _euclidean_distances
+from okapi.utils import _euclidean_distances
 
 
 def maximize(a, b):

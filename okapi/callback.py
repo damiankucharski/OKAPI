@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
-    from giraffe.giraffe import Giraffe
+    from okapi.okapi import Okapi
 
 
 class Callback:
@@ -19,7 +19,7 @@ class Callback:
     def __init__(self) -> None:
         pass
 
-    def on_generation_end(self, giraffe: "Giraffe") -> None:
+    def on_generation_end(self, okapi: "Okapi") -> None:
         """
         Called at the end of each generation.
 
@@ -27,11 +27,11 @@ class Callback:
         including selection, crossover, and mutation operations.
 
         Args:
-            giraffe: The Giraffe instance running the evolution
+            okapi: The Okapi instance running the evolution
         """
         pass
 
-    def on_evolution_end(self, giraffe: "Giraffe") -> None:
+    def on_evolution_end(self, okapi: "Okapi") -> None:
         """
         Called at the end of the entire evolution process.
 
@@ -39,11 +39,11 @@ class Callback:
         when the evolution process is manually stopped.
 
         Args:
-            giraffe: The Giraffe instance running the evolution
+            okapi: The Okapi instance running the evolution
         """
         pass
 
-    def on_evolution_start(self, giraffe: "Giraffe") -> None:
+    def on_evolution_start(self, okapi: "Okapi") -> None:
         """
         Called at the start of the evolution process.
 
@@ -51,11 +51,11 @@ class Callback:
         initial population has been created.
 
         Args:
-            giraffe: The Giraffe instance running the evolution
+            okapi: The Okapi instance running the evolution
         """
         pass
 
-    def on_generation_start(self, giraffe: "Giraffe") -> None:
+    def on_generation_start(self, okapi: "Okapi") -> None:
         """
         Called at the start of each generation.
 
@@ -63,7 +63,7 @@ class Callback:
         before any selection, crossover, or mutation operations.
 
         Args:
-            giraffe: The Giraffe instance running the evolution
+            okapi: The Okapi instance running the evolution
         """
         pass
 
@@ -75,14 +75,14 @@ class FitnessNoChangeEarlyStoppingCallback(Callback):
         self._last_fitnesses = None
         self._n_iterations = n_iterations
 
-    def on_generation_end(self, giraffe: "Giraffe") -> None:
+    def on_generation_end(self, okapi: "Okapi") -> None:
         if self._last_fitnesses is None:
-            self._last_fitnesses = giraffe.fitnesses
+            self._last_fitnesses = okapi.fitnesses
             return
-        assert isinstance(giraffe.fitnesses, np.ndarray), "Fitnesses need to be numpy array"
-        if np.allclose(self._last_fitnesses, giraffe.fitnesses):
+        assert isinstance(okapi.fitnesses, np.ndarray), "Fitnesses need to be numpy array"
+        if np.allclose(self._last_fitnesses, okapi.fitnesses):
             self._iterations_no_change += 1
             if self._iterations_no_change >= self._n_iterations:
-                giraffe.should_stop = True
+                okapi.should_stop = True
         else:
             self._iterations_no_change = 0

@@ -1,8 +1,8 @@
 import numpy as np
 from loguru import logger
 
-from giraffe.tree import Tree
-from giraffe.utils import _euclidean_distances
+from okapi.tree import Tree
+from okapi.utils import _euclidean_distances
 
 
 def tournament_selection_indexes(fitnesses: np.ndarray, tournament_size: int = 5, optimal_point: np.ndarray | None = None) -> np.ndarray:

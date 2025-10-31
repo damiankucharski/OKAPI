@@ -7,28 +7,28 @@ import numpy.typing as npt
 import tqdm
 from loguru import logger
 
-import giraffe.lib_types as lib_types
-from giraffe.backend.backend import Backend
-from giraffe.callback import Callback
-from giraffe.crossover import crossover, tournament_selection_indexes
-from giraffe.fitness import average_precision_fitness
-from giraffe.globals import BACKEND as B
-from giraffe.globals import DEVICE, set_postprocessing_function
-from giraffe.lib_types import Tensor
-from giraffe.mutation import get_allowed_mutations
-from giraffe.node import OperatorNode
-from giraffe.operators import CLOSE_THRESHOLD, FAR_THRESHOLD, MAX, MEAN, MIN, WEIGHTED_MEAN
-from giraffe.pareto import _get_optimal_point_based_on_list_of_objective_functions, maximize
-from giraffe.population import choose_pareto, choose_pareto_then_proximity, initialize_individuals
-from giraffe.tree import Tree
-from giraffe.utils import first_uniques_mask, mark_paths
+import okapi.lib_types as lib_types
+from okapi.backend.backend import Backend
+from okapi.callback import Callback
+from okapi.crossover import crossover, tournament_selection_indexes
+from okapi.fitness import average_precision_fitness
+from okapi.globals import BACKEND as B
+from okapi.globals import DEVICE, set_postprocessing_function
+from okapi.lib_types import Tensor
+from okapi.mutation import get_allowed_mutations
+from okapi.node import OperatorNode
+from okapi.operators import CLOSE_THRESHOLD, FAR_THRESHOLD, MAX, MEAN, MIN, WEIGHTED_MEAN
+from okapi.pareto import _get_optimal_point_based_on_list_of_objective_functions, maximize
+from okapi.population import choose_pareto, choose_pareto_then_proximity, initialize_individuals
+from okapi.tree import Tree
+from okapi.utils import first_uniques_mask, mark_paths
 
 
-class Giraffe:
+class Okapi:
     """
     Main class for evolutionary model ensemble optimization.
 
-    Giraffe uses genetic programming to evolve tree-based ensembles of machine learning models.
+    Okapi uses genetic programming to evolve tree-based ensembles of machine learning models.
     The algorithm creates a population of trees where each tree represents a different way of
     combining model predictions. Through evolution (crossover and mutation), it searches for
     optimal ensemble structures that maximize a fitness function.
@@ -67,7 +67,7 @@ class Giraffe:
         postprocessing_function=None,
     ):
         """
-        Initialize the Giraffe evolutionary algorithm.
+        Initialize the Okapi evolutionary algorithm.
 
         Args:
             preds_source: Source of model predictions, can be a path to directory or iterable of paths

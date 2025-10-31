@@ -2,7 +2,7 @@ import os
 
 from loguru import logger
 
-from giraffe.backend.backend import Backend
+from okapi.backend.backend import Backend
 
 # Device to use for tensor operations, can be set via environment variable
 DEVICE = os.environ.get("DEVICE", None)

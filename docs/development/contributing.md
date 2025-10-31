@@ -1,13 +1,13 @@
-# Contributing to GIRAFFE
+# Contributing to OKAPI
 
-GIRAFFE is an open-source project, and contributions are welcome. This document provides guidelines for contributing to the project.
+OKAPI is an open-source project, and contributions are welcome. This document provides guidelines for contributing to the project.
 
 ## Development Setup
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/damiankucharski/GIRAFFE.git
-   cd GIRAFFE
+   git clone https://github.com/damiankucharski/OKAPI.git
+   cd OKAPI
    ```
 1.1 Or fork it to be able to send pull requests
 
@@ -34,7 +34,7 @@ GIRAFFE is an open-source project, and contributions are welcome. This document 
 
 ## Code Style
 
-GIRAFFE uses:
+OKAPI uses:
 
 - [Ruff](https://github.com/charliermarsh/ruff) for code linting and formatting
 - [mypy](https://mypy.readthedocs.io/) for type checking

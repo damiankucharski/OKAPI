@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
 
-from giraffe.mutation import append_new_node_mutation, get_allowed_mutations, lose_branch_mutation, new_tree_from_branch_mutation
-from giraffe.node import MeanNode, OperatorNode, ValueNode
-from giraffe.tree import Tree
+from okapi.mutation import append_new_node_mutation, get_allowed_mutations, lose_branch_mutation, new_tree_from_branch_mutation
+from okapi.node import MeanNode, OperatorNode, ValueNode
+from okapi.tree import Tree
 
 
 @pytest.fixture
