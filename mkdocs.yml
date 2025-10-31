@@ -1,6 +1,6 @@
-site_name: GIRAFFE Documentation
-site_description: Documentation for GIRAFFE - Genetic Programming for Ensemble Model Fusion
-repo_url: https://github.com/damiankucharski/GIRAFFE
+site_name: OKAPI Documentation
+site_description: Documentation for OKAPI - Genetic Programming for Ensemble Model Fusion
+repo_url: https://github.com/damiankucharski/OKAPI
 theme:
   name: material
   palette:

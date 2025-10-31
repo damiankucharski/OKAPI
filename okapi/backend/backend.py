@@ -2,19 +2,19 @@ from typing import Type
 
 from loguru import logger
 
-from giraffe.backend.backend_interface import BackendInterface
-from giraffe.backend.numpy_backend import NumpyBackend
+from okapi.backend.backend_interface import BackendInterface
+from okapi.backend.numpy_backend import NumpyBackend
 
 
 class Backend:
     """
-    Factory class for managing tensor backends in GIRAFFE.
+    Factory class for managing tensor backends in OKAPI.
 
     This class provides a centralized way to set and retrieve the tensor backend
-    implementation (NumPy or PyTorch) used throughout the GIRAFFE library.
+    implementation (NumPy or PyTorch) used throughout the OKAPI library.
 
     Important: The backend should only be set at the beginning of the program,
-    before any GIRAFFE instances are initialized or predictions are loaded.
+    before any OKAPI instances are initialized or predictions are loaded.
     """
 
     _current_backend: Type[BackendInterface] = NumpyBackend
@@ -36,7 +36,7 @@ class Backend:
         """
         logger.info(f"Setting tensor backend to '{backend_name}'")
         if backend_name == "torch" or backend_name == "pytorch":
-            from giraffe.backend.pytorch import PyTorchBackend
+            from okapi.backend.pytorch import PyTorchBackend
 
             cls._current_backend = PyTorchBackend
             logger.debug("PyTorch backend initialized successfully")

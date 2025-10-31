@@ -3,7 +3,7 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 
-from giraffe.pareto import maximize, minimize, plot_pareto_frontier
+from okapi.pareto import maximize, minimize, plot_pareto_frontier
 
 # Ensure the .test_dump/pareto directory exists in the project root
 root_dir = os.path.dirname(os.path.dirname(__file__))

@@ -1,16 +1,16 @@
 # Core API
 
-This section documents the core components of GIRAFFE.
+This section documents the core components of OKAPI.
 
-## Giraffe Class
+## Okapi Class
 
-The `Giraffe` class is the main entry point for evolutionary model ensemble optimization.
+The `Okapi` class is the main entry point for evolutionary model ensemble optimization.
 
 ```python
-from giraffe.giraffe import Giraffe
+from okapi import Okapi
 ```
 
-::: giraffe.giraffe.Giraffe
+::: okapi.okapi.Okapi
     options:
       show_root_heading: false
       show_source: true
@@ -20,10 +20,10 @@ from giraffe.giraffe import Giraffe
 The `Tree` class represents a computational tree structure for model ensemble composition.
 
 ```python
-from giraffe.tree import Tree
+from okapi.tree import Tree
 ```
 
-::: giraffe.tree.Tree
+::: okapi.tree.Tree
     options:
       show_root_heading: false
       show_source: true

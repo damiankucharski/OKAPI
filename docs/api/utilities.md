@@ -1,16 +1,16 @@
 # Utilities API
 
-This section documents the utility components of GIRAFFE.
+This section documents the utility components of OKAPI.
 
 ## Fitness Functions
 
 Functions for evaluating the fitness of trees.
 
 ```python
-from giraffe.fitness import average_precision_fitness, roc_auc_score_fitness
+from okapi.fitness import average_precision_fitness, roc_auc_score_fitness
 ```
 
-::: giraffe.fitness
+::: okapi.fitness
     options:
       show_source: true
 
@@ -19,10 +19,10 @@ from giraffe.fitness import average_precision_fitness, roc_auc_score_fitness
 The callback system allows customizing the evolutionary process.
 
 ```python
-from giraffe.callback import Callback
+from okapi.callback import Callback
 ```
 
-::: giraffe.callback.Callback
+::: okapi.callback.Callback
     options:
       show_source: true
 
@@ -31,10 +31,10 @@ from giraffe.callback import Callback
 Functions for visualizing trees.
 
 ```python
-from giraffe.draw import draw_tree
+from okapi.draw import draw_tree
 ```
 
-::: giraffe.draw.draw_tree
+::: okapi.draw.draw_tree
     options:
       show_source: true
 
@@ -43,10 +43,10 @@ from giraffe.draw import draw_tree
 Functions for postprocessing tree outputs.
 
 ```python
-from giraffe.functions import scale_vector_to_sum_1, set_multiclass_postprocessing
+from okapi.functions import scale_vector_to_sum_1, set_multiclass_postprocessing
 ```
 
-::: giraffe.functions
+::: okapi.functions
     options:
       show_source: true
 
@@ -55,9 +55,9 @@ from giraffe.functions import scale_vector_to_sum_1, set_multiclass_postprocessi
 Additional utility functions.
 
 ```python
-from giraffe.utils import Pickle, first_uniques_mask
+from okapi.utils import Pickle, first_uniques_mask
 ```
 
-::: giraffe.utils
+::: okapi.utils
     options:
       show_source: true

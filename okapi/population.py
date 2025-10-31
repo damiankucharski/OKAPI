@@ -3,10 +3,10 @@ from typing import Callable, Dict, List, Sequence, Tuple
 import numpy as np
 from loguru import logger
 
-from giraffe.lib_types import Tensor
-from giraffe.node import ValueNode
-from giraffe.pareto import minimize, paretoset, sort_by_optimal_point_proximity
-from giraffe.tree import Tree
+from okapi.lib_types import Tensor
+from okapi.node import ValueNode
+from okapi.pareto import minimize, paretoset, sort_by_optimal_point_proximity
+from okapi.tree import Tree
 
 
 def initialize_individuals(tensors_dict: Dict[str, Tensor], n: int, exclude_ids=tuple()) -> List[Tree]:

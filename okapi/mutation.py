@@ -3,9 +3,9 @@ from typing import Callable, Sequence, Type
 import numpy as np
 from loguru import logger
 
-from giraffe.lib_types import Tensor
-from giraffe.node import MeanNode, OperatorNode, ValueNode
-from giraffe.tree import Tree
+from okapi.lib_types import Tensor
+from okapi.node import MeanNode, OperatorNode, ValueNode
+from okapi.tree import Tree
 
 
 def append_new_node_mutation(

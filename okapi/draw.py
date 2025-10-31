@@ -1,9 +1,9 @@
 import numpy as np
 from graphviz import Digraph
 
-from giraffe.globals import BACKEND as B
-from giraffe.node import Node, OperatorNode, ValueNode
-from giraffe.tree import Tree
+from okapi.globals import BACKEND as B
+from okapi.node import Node, OperatorNode, ValueNode
+from okapi.tree import Tree
 
 
 def draw_tree(to_draw: Node | OperatorNode | Tree | ValueNode, dot=None, add_val_eval=True, remove_after_dot=False):

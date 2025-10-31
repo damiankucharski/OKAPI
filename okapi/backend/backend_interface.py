@@ -3,9 +3,9 @@ import numpy as np
 
 class BackendInterface:
     """
-    Abstract interface for tensor backends used by GIRAFFE.
+    Abstract interface for tensor backends used by OKAPI.
 
-    This interface defines the tensor operations required by GIRAFFE, allowing
+    This interface defines the tensor operations required by OKAPI, allowing
     for different backend implementations (e.g., NumPy, PyTorch) to be used
     interchangeably. Each backend must implement all these methods to provide
     a consistent interface for tensor operations.

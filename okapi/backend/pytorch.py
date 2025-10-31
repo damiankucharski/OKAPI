@@ -1,7 +1,7 @@
 import torch
 from loguru import logger
 
-from giraffe.backend.backend_interface import BackendInterface
+from okapi.backend.backend_interface import BackendInterface
 
 
 class PyTorchBackend(BackendInterface):

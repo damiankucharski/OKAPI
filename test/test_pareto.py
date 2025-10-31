@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 # Import the functions to test
-from giraffe.pareto import _get_optimal_point_based_on_list_of_objective_functions, maximize, minimize, paretoset, sort_by_optimal_point_proximity
+from okapi.pareto import _get_optimal_point_based_on_list_of_objective_functions, maximize, minimize, paretoset, sort_by_optimal_point_proximity
 
 
 def test_simple_maximize():

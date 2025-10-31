@@ -3,10 +3,10 @@ from typing import List, cast
 import numpy as np
 import pytest
 
-from giraffe.node import ValueNode
-from giraffe.pareto import maximize
-from giraffe.population import choose_pareto, choose_pareto_then_proximity
-from giraffe.tree import Tree
+from okapi.node import ValueNode
+from okapi.pareto import maximize
+from okapi.population import choose_pareto, choose_pareto_then_proximity
+from okapi.tree import Tree
 
 
 # Helper function to create trees for testing

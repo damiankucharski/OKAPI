@@ -6,15 +6,16 @@ dependencies = [
   "scikit-learn>=1.6.1",
   "pre-commit>=4.2.0",
   "matplotlib>=3.10.1",
+  "tqdm>=4.66.0",
 ]
 description = "Add your description here"
-name = "giraffe"
+name = "okapi"
 readme = "README.md"
 requires-python = ">=3.12"
 version = "0.1.0"
 
 [tool.setuptools.packages.find]
-include = ["giraffe*"] # Only include the giraffe package
+include = ["okapi*"] # Only include the okapi package
 
 [tool.ruff]
 
@@ -60,7 +61,7 @@ unfixable = []
 [tool.mypy]
 check_untyped_defs = true
 explicit_package_bases = true
-files = "giraffe"
+files = "okapi"
 ignore_missing_imports = true
 warn_redundant_casts = true
 warn_unreachable = true

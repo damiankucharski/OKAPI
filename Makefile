@@ -12,7 +12,7 @@ test:
 
 mypy:
 	@echo "Running mypy..."
-	uv run mypy giraffe
+	uv run mypy okapi
 
 build_docs:
 	@echo "Building docs..."
@@ -28,7 +28,7 @@ deploy_docs:
 
 ruff:
 	@echo "Running ruff..."
-	uv run ruff check giraffe --fix
+	uv run ruff check okapi --fix
 
 
 test_all: test mypy

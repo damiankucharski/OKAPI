@@ -1,13 +1,13 @@
 # Operators API
 
-This section documents the operator aliases provided by GIRAFFE for easier usage.
+This section documents the operator aliases provided by OKAPI for easier usage.
 
 Operator aliases provide convenient access to different operator node types.
 
 ```python
-from giraffe.operators import MEAN, MIN, MAX, WEIGHTED_MEAN
+from okapi.operators import MEAN, MIN, MAX, WEIGHTED_MEAN
 ```
 
-::: giraffe.operators
+::: okapi.operators
     options:
       show_source: true

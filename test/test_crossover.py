@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
 
-from giraffe.crossover import crossover, tournament_selection_indexes
-from giraffe.node import MaxNode, MeanNode, ValueNode
-from giraffe.tree import Tree
+from okapi.crossover import crossover, tournament_selection_indexes
+from okapi.node import MaxNode, MeanNode, ValueNode
+from okapi.tree import Tree
 
 
 @pytest.fixture

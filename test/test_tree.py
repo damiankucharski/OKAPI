@@ -3,9 +3,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from giraffe.globals import BACKEND as B
-from giraffe.node import OperatorNode, ValueNode, WeightedMeanNode
-from giraffe.tree import Tree
+from okapi.globals import BACKEND as B
+from okapi.node import OperatorNode, ValueNode, WeightedMeanNode
+from okapi.tree import Tree
 
 
 @pytest.fixture

@@ -1,6 +1,6 @@
-# GIRAFFE: Genetic Programming for Ensemble Model Fusion
+# OKAPI: Genetic Programming for Ensemble Model Fusion
 
-GIRAFFE is a Python library that uses genetic programming to evolve optimal ensembles of machine learning models for classification tasks. It combines the predictions of multiple models into a single, more accurate prediction by evolving tree structures representing different fusion strategies.
+OKAPI is a Python library that uses genetic programming to evolve optimal ensembles of machine learning models for classification tasks. It combines the predictions of multiple models into a single, more accurate prediction by evolving tree structures representing different fusion strategies.
 
 ## Key Features
 
@@ -10,9 +10,9 @@ GIRAFFE is a Python library that uses genetic programming to evolve optimal ense
 - **Backend flexibility**: Works with both NumPy and PyTorch backends
 - **Pareto optimization**: Balances model complexity and performance for robust solutions
 
-## When to Use GIRAFFE
+## When to Use OKAPI
 
-GIRAFFE is particularly useful when:
+OKAPI is particularly useful when:
 
 - You have multiple models predicting the same target
 - You want to combine these models in a way that outperforms individual models
@@ -21,7 +21,7 @@ GIRAFFE is particularly useful when:
 
 ## Project Status
 
-GIRAFFE is currently under active development. The core functionality is implemented, but the library may change significantly before the first stable release.
+OKAPI is currently under active development. The core functionality is implemented, but the library may change significantly before the first stable release.
 
 ## Documentation Structure
 
