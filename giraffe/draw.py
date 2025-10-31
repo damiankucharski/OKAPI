@@ -6,7 +6,7 @@ from giraffe.node import Node, OperatorNode, ValueNode
 from giraffe.tree import Tree
 
 
-def draw_tree(to_draw: Node | OperatorNode | Tree | ValueNode, dot=None, add_val_eval=True):
+def draw_tree(to_draw: Node | OperatorNode | Tree | ValueNode, dot=None, add_val_eval=True, remove_after_dot=False):
     """
     Create a visual representation of a tree structure using Graphviz.
 
@@ -30,6 +30,7 @@ def draw_tree(to_draw: Node | OperatorNode | Tree | ValueNode, dot=None, add_val
 
     if dot is None:
         dot = Digraph(comment="Tree")
+        dot.attr('node', shape='box', width='1.0', margin='0.1')
 
     if isinstance(node, ValueNode):
         if node.value is not None:
@@ -47,7 +48,10 @@ def draw_tree(to_draw: Node | OperatorNode | Tree | ValueNode, dot=None, add_val
         display_string = "Value Node\n"
 
         if node.id is not None:
-            display_string += f"Model ID: {node.id}\n"
+            node_id = str(node.id)
+            if remove_after_dot:
+                node_id = node_id.split('.')[0]
+            display_string += f"Model ID:\n {node_id}\n"
 
         if add_val_eval:
             display_string += f"Value: {value} | Eval: {evaluation}"
@@ -60,7 +64,7 @@ def draw_tree(to_draw: Node | OperatorNode | Tree | ValueNode, dot=None, add_val
         dot.node(f"{hex(id(node))}", f"Op\n{str(node)}")
 
     for child in node.children:
-        draw_tree(child, dot, add_val_eval)
+        draw_tree(child, dot, add_val_eval, remove_after_dot)
         dot.edge(f"{hex(id(node))}", f"{hex(id(child))}")
 
     return dot
