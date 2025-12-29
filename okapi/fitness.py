@@ -35,7 +35,9 @@ def _infer_num_classes(gt: torch.Tensor, task: str) -> int:
         raise ValueError(f"Unknown task type: {task}")
 
 
-def average_precision_fitness(tree: Tree, gt: Tensor, task: Literal["binary", "multiclass", "multilabel"] = "binary") -> float:
+def average_precision_fitness(
+    tree_or_prediction: Tree | Tensor, gt: Tensor, task: Literal["binary", "multiclass", "multilabel"] = "binary"
+) -> float:
     """
     Calculate the Average Precision (AP) score as a fitness measure using torchmetrics.
 
@@ -44,7 +46,8 @@ def average_precision_fitness(tree: Tree, gt: Tensor, task: Literal["binary", "m
     as the weight. This implementation supports binary, multiclass, and multilabel classification.
 
     Args:
-        tree: The tree whose evaluation will be compared against ground truth
+        tree_or_prediction: Either a Tree object (for backward compatibility) or a prediction
+                           tensor directly (for memory-efficient usage with tree.predict())
         gt: Ground truth tensor containing labels
         task: Classification task type:
             - 'binary': Binary classification (default)
@@ -56,11 +59,17 @@ def average_precision_fitness(tree: Tree, gt: Tensor, task: Literal["binary", "m
     """
     from torchmetrics.classification import AveragePrecision
 
-    # Ensure inputs are PyTorch tensors
-    if not isinstance(tree.evaluation, torch.Tensor):
-        pred = torch.tensor(B.to_numpy(tree.evaluation))
+    # Handle both Tree objects and direct tensors
+    if isinstance(tree_or_prediction, Tree):
+        evaluation = tree_or_prediction.evaluation
     else:
-        pred = tree.evaluation
+        evaluation = tree_or_prediction
+
+    # Convert to torch.Tensor for torchmetrics compatibility
+    if not isinstance(evaluation, torch.Tensor):
+        pred = torch.tensor(B.to_numpy(evaluation))
+    else:
+        pred = evaluation
 
     if not isinstance(gt, torch.Tensor):
         gt = torch.tensor(B.to_numpy(gt))
@@ -75,19 +84,20 @@ def average_precision_fitness(tree: Tree, gt: Tensor, task: Literal["binary", "m
     elif task == "multilabel":
         metric = AveragePrecision(task=task, num_labels=num_classes)
     else:  # binary
-        if pred.shape[1] == 2:
-            pred = pred[:, 1]
-        elif pred.shape[1] == 1:
-            pred = pred.squeeze()
-        else:
-            pass
+        if pred.dim() > 1:
+            if pred.shape[1] == 2:
+                pred = pred[:, 1]
+            elif pred.shape[1] == 1:
+                pred = pred.squeeze()
         metric = AveragePrecision(task=task)
 
     # Calculate and return the score
     return metric(pred, gt).item()
 
 
-def roc_auc_score_fitness(tree: Tree, gt: Tensor, task: Literal["binary", "multiclass", "multilabel"] = "binary") -> float:
+def roc_auc_score_fitness(
+    tree_or_prediction: Tree | Tensor, gt: Tensor, task: Literal["binary", "multiclass", "multilabel"] = "binary"
+) -> float:
     """
     Calculate the Area Under the ROC Curve (AUC-ROC) score as a fitness measure using torchmetrics.
 
@@ -96,7 +106,8 @@ def roc_auc_score_fitness(tree: Tree, gt: Tensor, task: Literal["binary", "multi
     binary, multiclass, and multilabel classification.
 
     Args:
-        tree: The tree whose evaluation will be compared against ground truth
+        tree_or_prediction: Either a Tree object (for backward compatibility) or a prediction
+                           tensor directly (for memory-efficient usage with tree.predict())
         gt: Ground truth tensor containing labels
         task: Classification task type:
             - 'binary': Binary classification (default)
@@ -108,11 +119,17 @@ def roc_auc_score_fitness(tree: Tree, gt: Tensor, task: Literal["binary", "multi
     """
     from torchmetrics.classification import AUROC
 
-    # Ensure inputs are PyTorch tensors
-    if not isinstance(tree.evaluation, torch.Tensor):
-        pred = torch.tensor(B.to_numpy(tree.evaluation))
+    # Handle both Tree objects and direct tensors
+    if isinstance(tree_or_prediction, Tree):
+        evaluation = tree_or_prediction.evaluation
     else:
-        pred = tree.evaluation
+        evaluation = tree_or_prediction
+
+    # Convert to torch.Tensor for torchmetrics compatibility
+    if not isinstance(evaluation, torch.Tensor):
+        pred = torch.tensor(B.to_numpy(evaluation))
+    else:
+        pred = evaluation
 
     if not isinstance(gt, torch.Tensor):
         gt = torch.tensor(B.to_numpy(gt))
@@ -133,7 +150,9 @@ def roc_auc_score_fitness(tree: Tree, gt: Tensor, task: Literal["binary", "multi
     return metric(pred, gt).item()
 
 
-def accuracy_fitness(tree: Tree, gt: Tensor, task: Literal["binary", "multiclass", "multilabel"] = "binary") -> float:
+def accuracy_fitness(
+    tree_or_prediction: Tree | Tensor, gt: Tensor, task: Literal["binary", "multiclass", "multilabel"] = "binary"
+) -> float:
     """
     Calculate the Accuracy score as a fitness measure using torchmetrics.
 
@@ -141,7 +160,8 @@ def accuracy_fitness(tree: Tree, gt: Tensor, task: Literal["binary", "multiclass
     This implementation supports binary, multiclass, and multilabel classification.
 
     Args:
-        tree: The tree whose evaluation will be compared against ground truth
+        tree_or_prediction: Either a Tree object (for backward compatibility) or a prediction
+                           tensor directly (for memory-efficient usage with tree.predict())
         gt: Ground truth tensor containing labels
         task: Classification task type:
             - 'binary': Binary classification (default)
@@ -153,11 +173,17 @@ def accuracy_fitness(tree: Tree, gt: Tensor, task: Literal["binary", "multiclass
     """
     from torchmetrics.classification import Accuracy
 
-    # Ensure inputs are PyTorch tensors
-    if not isinstance(tree.evaluation, torch.Tensor):
-        pred = torch.tensor(B.to_numpy(tree.evaluation))
+    # Handle both Tree objects and direct tensors
+    if isinstance(tree_or_prediction, Tree):
+        evaluation = tree_or_prediction.evaluation
     else:
-        pred = tree.evaluation
+        evaluation = tree_or_prediction
+
+    # Convert to torch.Tensor for torchmetrics compatibility
+    if not isinstance(evaluation, torch.Tensor):
+        pred = torch.tensor(B.to_numpy(evaluation))
+    else:
+        pred = evaluation
 
     if not isinstance(gt, torch.Tensor):
         gt = torch.tensor(B.to_numpy(gt))

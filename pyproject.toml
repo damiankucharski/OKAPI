@@ -1,17 +1,17 @@
 [project]
 dependencies = [
   "graphviz>=0.20.3",
-  "numpy>=2.2.1",
+  "numpy>=1.20.0",
   "loguru>=0.7.3",
-  "scikit-learn>=1.6.1",
+  "scikit-learn>=1.0.0",
   "pre-commit>=4.2.0",
-  "matplotlib>=3.10.1",
+  "matplotlib>=3.5.0",
   "tqdm>=4.66.0",
 ]
 description = "Add your description here"
 name = "okapi"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 version = "0.1.0"
 
 [tool.setuptools.packages.find]
@@ -20,7 +20,7 @@ include = ["okapi*"] # Only include the okapi package
 [tool.ruff]
 
 line-length = 150
-target-version = "py312"
+target-version = "py310"
 
 # Allow autofix for all enabled rules (when `--fix`) is provided.
 

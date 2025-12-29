@@ -78,3 +78,8 @@ class BackendInterface:
     @staticmethod
     def load(path, device=None):
         raise NotImplementedError()
+
+    @staticmethod
+    def clone(x):
+        """Create a deep copy of tensor, detached from compute graph."""
+        raise NotImplementedError()

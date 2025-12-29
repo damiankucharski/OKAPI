@@ -77,3 +77,7 @@ class NumpyBackend(BackendInterface):
         if not isinstance(loaded, np.ndarray):
             raise ValueError(f"file {path} is not a numpy file")
         return loaded
+
+    @staticmethod
+    def clone(x):
+        return x.copy()

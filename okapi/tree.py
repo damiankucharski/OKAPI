@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Self, Tuple, cast
+from typing import Tuple, cast
 
 import numpy as np
 from loguru import logger
@@ -134,6 +134,38 @@ class Tree:
         logger.trace("Tree recalculation complete")
         return evaluation
 
+    def predict(self, clear_cache: bool = True) -> Tensor:
+        """
+        Compute tree evaluation and return a detached copy.
+
+        Memory-efficient alternative to accessing .evaluation directly.
+        Computes evaluation if not cached, creates a detached copy of the result,
+        and optionally clears all intermediate evaluation caches.
+
+        Args:
+            clear_cache: If True (default), clears all ValueNode evaluation caches
+                        after copying the result. Set to False if you need to
+                        inspect intermediate values afterward.
+
+        Returns:
+            A detached copy of the root evaluation tensor, safe to use without
+            holding references to the tree's internal computation state.
+
+        Example:
+            # Memory-efficient fitness calculation
+            prediction = tree.predict()  # Caches cleared automatically
+            fitness = objective_function(prediction, ground_truth)
+        """
+        logger.debug("Computing prediction with cache management")
+        result = self.evaluation
+        result_copy = B.clone(result)
+
+        if clear_cache:
+            self._clean_evals()
+            logger.trace("Evaluation caches cleared")
+
+        return result_copy
+
     def copy(self):
         """
         Create a deep copy of the tree.
@@ -231,7 +263,7 @@ class Tree:
         logger.debug("Append complete, clearing cached evaluations")
         self._clean_evals()
 
-    def replace_at(self, at: Node, replacement: Node) -> Self:
+    def replace_at(self, at: Node, replacement: Node) -> "Tree":
         """
         Replace a node in the tree with another node.
 

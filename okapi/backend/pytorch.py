@@ -83,3 +83,7 @@ class PyTorchBackend(BackendInterface):
         if not isinstance(loaded, torch.Tensor):
             raise ValueError(f"file {path}  is not a torch.Tensor")
         return loaded
+
+    @staticmethod
+    def clone(x):
+        return x.detach().clone()

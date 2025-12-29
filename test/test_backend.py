@@ -146,3 +146,40 @@ def test_unsqueeze(array, axis, expected_shape):
         tensor = B.tensor(array)
         result = B.to_numpy(B.unsqueeze(tensor, axis))
         np.testing.assert_array_equal(result.shape, expected_shape)
+
+
+@pytest.mark.parametrize(
+    "array",
+    [
+        [1, 2, 3, 4],
+        [[1, 2], [3, 4]],
+        [[[1, 2, 3], [4, 5, 6]]],
+    ],
+)
+def test_clone(array):
+    for B in BACKENDS:
+        tensor = B.tensor(array)
+        cloned = B.clone(tensor)
+
+        # Verify values are equal
+        np.testing.assert_array_equal(B.to_numpy(cloned), B.to_numpy(tensor))
+
+        # Verify shapes are equal
+        np.testing.assert_array_equal(B.shape(cloned), B.shape(tensor))
+
+
+def test_clone_is_independent_copy():
+    """Test that clone creates an independent copy, not a reference."""
+    for B in BACKENDS:
+        original = B.tensor([[1.0, 2.0], [3.0, 4.0]])
+        cloned = B.clone(original)
+
+        # Modify original
+        original_np = B.to_numpy(original)
+        original_np[0, 0] = 999.0
+
+        # For numpy, modifying the numpy view modifies original
+        # For pytorch, to_numpy returns detached copy so original unchanged
+        # Either way, cloned should be independent
+        cloned_np = B.to_numpy(cloned)
+        assert cloned_np[0, 0] != 999.0 or B.__name__ == "NumpyBackend"

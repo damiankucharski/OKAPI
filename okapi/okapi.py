@@ -145,6 +145,9 @@ class Okapi:
         """
         Calculate fitness values for the given trees.
 
+        Uses memory-efficient prediction extraction via tree.predict() which
+        clears intermediate evaluation caches after each tree is evaluated.
+
         Args:
             trees: List of trees to evaluate. If None, uses the current population.
 
@@ -154,9 +157,17 @@ class Okapi:
         if trees is None:
             trees = self.population
         logger.debug(f"Calculating fitness for {len(trees)} trees")
+
         fitnesses = np.zeros(shape=(len(trees), len(self.objective_functions)))
-        for ix, objective_function in enumerate(self.objective_functions):
-            fitnesses[:, ix] = np.array([objective_function(tree, self.gt_tensor) for tree in trees])
+
+        for tree_idx, tree in enumerate(trees):
+            # Get prediction with automatic cache clearing for memory efficiency
+            prediction = tree.predict(clear_cache=True)
+
+            # Evaluate all objective functions on this prediction
+            for obj_idx, objective_function in enumerate(self.objective_functions):
+                fitnesses[tree_idx, obj_idx] = objective_function(prediction, self.gt_tensor)
+
         return fitnesses
 
     def run_iteration(self):

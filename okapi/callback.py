@@ -1,3 +1,4 @@
+import gc
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -86,3 +87,37 @@ class FitnessNoChangeEarlyStoppingCallback(Callback):
                 okapi.should_stop = True
         else:
             self._iterations_no_change = 0
+
+
+class MemoryCleanupCallback(Callback):
+    """
+    Callback that triggers garbage collection at specified intervals.
+
+    Useful for large tensor operations where Python's automatic garbage
+    collection may not be aggressive enough.
+
+    Args:
+        gc_every_n_generations: Run garbage collection every N generations.
+                               Default is 1 (every generation).
+        clear_cuda_cache: If True, also clears CUDA cache when available.
+                         Default is True.
+    """
+
+    def __init__(self, gc_every_n_generations: int = 1, clear_cuda_cache: bool = True):
+        super().__init__()
+        self._gc_interval = gc_every_n_generations
+        self._clear_cuda_cache = clear_cuda_cache
+        self._generation_count = 0
+
+    def on_generation_end(self, okapi: "Okapi") -> None:
+        self._generation_count += 1
+        if self._generation_count % self._gc_interval == 0:
+            gc.collect()
+            if self._clear_cuda_cache:
+                try:
+                    import torch
+
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                except ImportError:
+                    pass

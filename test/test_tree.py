@@ -293,3 +293,70 @@ def duplicated_values_tree(duplicated_nodes_set) -> Tree:
 def test_unique_value_node_ids(duplicated_values_tree):
     unique_ids = duplicated_values_tree.unique_value_node_ids
     assert sorted(unique_ids) == ["A", "B", "C", "D"]
+
+
+def test_predict_returns_correct_value(weighted_mean_tree):
+    """Test that predict returns the same value as evaluation."""
+    tree = Tree.create_tree_from_root(weighted_mean_tree["A"])
+
+    evaluation = tree.evaluation
+    prediction = tree.predict(clear_cache=False)
+
+    np.testing.assert_array_equal(B.to_numpy(prediction), B.to_numpy(evaluation))
+
+
+def test_predict_returns_copy(weighted_mean_tree):
+    """Test that predict returns a copy, not a reference."""
+    tree = Tree.create_tree_from_root(weighted_mean_tree["A"])
+
+    prediction = tree.predict(clear_cache=False)
+    original_eval = B.to_numpy(tree.evaluation).copy()
+
+    # Modify prediction
+    prediction_np = B.to_numpy(prediction)
+    prediction_np[0, 0] = 999.0
+
+    # Original evaluation should be unchanged
+    np.testing.assert_array_equal(B.to_numpy(tree.evaluation), original_eval)
+
+
+def test_predict_clears_cache(weighted_mean_tree):
+    """Test that predict clears evaluation caches when requested."""
+    tree = Tree.create_tree_from_root(weighted_mean_tree["A"])
+
+    # First compute evaluation (populates cache)
+    _ = tree.evaluation
+
+    # Verify cache is populated
+    assert tree.root.evaluation is not None
+
+    # Call predict with cache clearing
+    _ = tree.predict(clear_cache=True)
+
+    # Verify caches are cleared
+    for node in tree.nodes["value_nodes"]:
+        assert node.evaluation is None
+
+
+def test_predict_preserves_cache_when_disabled(weighted_mean_tree):
+    """Test that predict preserves caches when clear_cache=False."""
+    tree = Tree.create_tree_from_root(weighted_mean_tree["A"])
+
+    # Call predict without cache clearing
+    _ = tree.predict(clear_cache=False)
+
+    # Cache should still be populated
+    assert tree.root.evaluation is not None
+
+
+def test_predict_can_be_called_multiple_times(weighted_mean_tree):
+    """Test that predict can be called multiple times correctly."""
+    tree = Tree.create_tree_from_root(weighted_mean_tree["A"])
+
+    prediction1 = tree.predict(clear_cache=True)
+    prediction2 = tree.predict(clear_cache=True)
+    prediction3 = tree.predict(clear_cache=False)
+
+    # All predictions should have same values
+    np.testing.assert_array_equal(B.to_numpy(prediction1), B.to_numpy(prediction2))
+    np.testing.assert_array_equal(B.to_numpy(prediction2), B.to_numpy(prediction3))
