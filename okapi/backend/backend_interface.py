@@ -83,3 +83,13 @@ class BackendInterface:
     def clone(x):
         """Create a deep copy of tensor, detached from compute graph."""
         raise NotImplementedError()
+
+    @staticmethod
+    def to_device(x, reference):
+        """Move tensor x to the same device as reference tensor."""
+        raise NotImplementedError()
+
+    @staticmethod
+    def arange(n, device_ref=None):
+        """Create a range tensor [0, 1, ..., n-1] on same device as reference."""
+        raise NotImplementedError()

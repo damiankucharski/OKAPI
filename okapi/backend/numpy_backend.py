@@ -81,3 +81,11 @@ class NumpyBackend(BackendInterface):
     @staticmethod
     def clone(x):
         return x.copy()
+
+    @staticmethod
+    def to_device(x, reference):
+        return x  # NumPy has no device concept
+
+    @staticmethod
+    def arange(n, device_ref=None):
+        return np.arange(n)

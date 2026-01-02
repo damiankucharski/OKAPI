@@ -87,3 +87,13 @@ class PyTorchBackend(BackendInterface):
     @staticmethod
     def clone(x):
         return x.detach().clone()
+
+    @staticmethod
+    def to_device(x, reference):
+        return x.to(reference.device)
+
+    @staticmethod
+    def arange(n, device_ref=None):
+        if device_ref is not None:
+            return torch.arange(n, device=device_ref.device)
+        return torch.arange(n)

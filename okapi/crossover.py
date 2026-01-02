@@ -106,8 +106,11 @@ def crossover(tree1: Tree, tree2: Tree, node_type=None):
     branch1, branch2 = node1.copy_subtree(), node2.copy_subtree()
 
     logger.debug("Swapping subtrees between trees")
-    tree1.replace_at(node1, branch2).recalculate()
-    tree2.replace_at(node2, branch1).recalculate()
+    tree1.replace_at(node1, branch2)
+    tree2.replace_at(node2, branch1)
+    # Update node lists without computing evaluations (defer to fitness calculation)
+    tree1.update_nodes()
+    tree2.update_nodes()
 
     logger.info(f"Crossover complete, created two new trees with {tree1.nodes_count} and {tree2.nodes_count} nodes")
     return tree1, tree2

@@ -112,6 +112,13 @@ class MemoryCleanupCallback(Callback):
     def on_generation_end(self, okapi: "Okapi") -> None:
         self._generation_count += 1
         if self._generation_count % self._gc_interval == 0:
+            # Clear evaluation caches from all trees in population
+            for tree in okapi.population:
+                tree._clean_evals()
+            if hasattr(okapi, "additional_population") and okapi.additional_population:
+                for tree in okapi.additional_population:
+                    tree._clean_evals()
+
             gc.collect()
             if self._clear_cuda_cache:
                 try:

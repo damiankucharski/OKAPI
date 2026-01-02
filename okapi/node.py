@@ -277,6 +277,7 @@ class WeightedMeanNode(OperatorNode):
     def op(self, x):
         weight_shape = (-1, *([1] * (len(x.shape) - 1)))
         w = B.reshape(self.weights, weight_shape)
+        w = B.to_device(w, x)  # Ensure weights are on same device as input
         x = x * w
         x = B.sum(x, axis=0)
         return x
@@ -499,7 +500,7 @@ class ThresholdNode(OperatorNode):
             ixes = B.argmax(adjusted, axis=0)
 
         x_reshaped = B.reshape(x, (x.shape[0], -1))
-        col_indices = B.tensor(np.arange(B.shape(x_reshaped)[1]).tolist())
+        col_indices = B.arange(B.shape(x_reshaped)[1], device_ref=x)
         # Select the value from the row with min/max squared distance in each "column - place"
         x_selected = x_reshaped[ixes, col_indices]
         x = B.reshape(x_selected, orig_shape[1:])
