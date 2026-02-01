@@ -8,6 +8,37 @@ from okapi.node import MeanNode, OperatorNode, ValueNode
 from okapi.tree import Tree
 
 
+def mutate_parameters(tree: Tree, mutation_strength: float = 0.1, **kwargs):
+    """
+    Mutate parameters of all parametrized nodes in the tree.
+
+    Iterates over all operator nodes and calls mutate_params() on each.
+    When a tree is selected for parameter mutation, ALL parametrized nodes
+    are mutated (deterministic once selected). The only stochasticity is
+    the Gaussian noise applied within each node's mutate_params().
+
+    Args:
+        tree: The tree to mutate (modified in place after copy)
+        mutation_strength: Controls magnitude of parameter changes (passed to mutate_params)
+        **kwargs: Additional keyword arguments (ignored)
+
+    Returns:
+        A new Tree with mutated parameters
+    """
+    logger.debug(f"Applying parameter mutation with strength={mutation_strength}")
+    tree = tree.copy()
+
+    op_nodes = tree.nodes.get("op_nodes", [])
+    mutated_count = 0
+
+    for node in op_nodes:
+        if node.mutate_params(mutation_strength):
+            mutated_count += 1
+
+    logger.info(f"Parameter mutation complete: {mutated_count}/{len(op_nodes)} parametrized nodes mutated")
+    return tree
+
+
 def append_new_node_mutation(
     tree: Tree, models: Sequence[Tensor], ids: None | Sequence[str | int] = None, allowed_ops: tuple[Type[OperatorNode], ...] = (MeanNode,), **kwargs
 ):

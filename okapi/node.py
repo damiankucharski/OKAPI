@@ -225,6 +225,18 @@ class OperatorNode(Node):
     def op(self, x):
         return x
 
+    def mutate_params(self, mutation_strength: float = 0.1) -> bool:
+        """
+        Mutate node parameters. Override in parametrized nodes.
+
+        Args:
+            mutation_strength: Controls the magnitude of parameter changes (default 0.1)
+
+        Returns:
+            True if parameters were mutated, False otherwise
+        """
+        return False  # Default: no parameters to mutate
+
 
 class MeanNode(OperatorNode):
     """
@@ -337,7 +349,9 @@ class WeightedMeanNode(OperatorNode):
 
     @property
     def code(self) -> str:
-        return "WMN"
+        # Include weights in code for proper duplicate detection
+        weights_str = ",".join(f"{w:.1f}" for w in self._weights)
+        return f"WMN[{weights_str}]"
 
     @property
     def weights(self):
@@ -385,6 +399,34 @@ class WeightedMeanNode(OperatorNode):
             logger.error(f"Weight array length ({actual_length}) does not match expected {expected_length}")
             assert actual_length == expected_length, "Length of weight array is different than number of adjacent nodes"
         logger.trace(f"Weight length assertion passed: {actual_length}")
+
+    def mutate_params(self, mutation_strength: float = 0.1) -> bool:
+        """
+        Mutate weights by adding Gaussian noise and renormalizing to sum to 1.
+
+        Args:
+            mutation_strength: Standard deviation of Gaussian noise (default 0.1)
+
+        Returns:
+            True (parameters were mutated)
+        """
+        logger.debug(f"Mutating WeightedMeanNode weights with strength {mutation_strength}")
+        logger.trace(f"Original weights: {self._weights}")
+
+        # Add Gaussian noise to each weight
+        noise = np.random.normal(0, mutation_strength, len(self._weights))
+        new_weights = np.array(self._weights) + noise
+
+        # Clip to ensure non-negative weights
+        new_weights = np.clip(new_weights, 0.01, None)  # Small minimum to avoid zero weights
+
+        # Renormalize to sum to 1
+        new_weights = new_weights / np.sum(new_weights)
+        self._weights = new_weights.tolist()
+
+        logger.trace(f"Mutated weights: {self._weights}")
+        self._weight_sum_assertion()
+        return True
 
 
 class MaxNode(OperatorNode):
@@ -487,7 +529,8 @@ class ThresholdNode(OperatorNode):
 
     @property
     def code(self) -> str:
-        return f"TH{self.strclose}".upper()
+        # Include threshold in code for proper duplicate detection
+        return f"TH{self.strclose}[{self.threshold:.1f}]".upper()
 
     def op(self, x):
         orig_shape = B.shape(x)
@@ -509,6 +552,25 @@ class ThresholdNode(OperatorNode):
 
     def adjust_params(self):
         return
+
+    def mutate_params(self, mutation_strength: float = 0.1) -> bool:
+        """
+        Mutate threshold by adding Gaussian noise, clipped to [0, 1].
+
+        Args:
+            mutation_strength: Standard deviation of Gaussian noise (default 0.1)
+
+        Returns:
+            True (parameters were mutated)
+        """
+        logger.debug(f"Mutating ThresholdNode threshold with strength {mutation_strength}")
+        logger.trace(f"Original threshold: {self.threshold}")
+
+        noise = np.random.normal(0, mutation_strength)
+        self.threshold = float(np.clip(self.threshold + noise, 0.0, 1.0))
+
+        logger.trace(f"Mutated threshold: {self.threshold}")
+        return True
 
     @staticmethod
     def create_node(children):

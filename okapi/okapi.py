@@ -15,7 +15,7 @@ from okapi.fitness import average_precision_fitness
 from okapi.globals import BACKEND as B
 from okapi.globals import DEVICE, set_postprocessing_function
 from okapi.lib_types import Tensor
-from okapi.mutation import get_allowed_mutations
+from okapi.mutation import get_allowed_mutations, mutate_parameters
 from okapi.node import OperatorNode
 from okapi.operators import CLOSE_THRESHOLD, FAR_THRESHOLD, MAX, MEAN, MIN, WEIGHTED_MEAN
 from okapi.pareto import _get_optimal_point_based_on_list_of_objective_functions, maximize
@@ -65,6 +65,7 @@ class Okapi:
         backend: Union[str, None] = None,
         seed: int = 0,
         postprocessing_function=None,
+        mutation_strength: float = 0.1,
     ):
         """
         Initialize the Okapi evolutionary algorithm.
@@ -84,6 +85,8 @@ class Okapi:
             seed: Random seed for reproducibility
             postprocessing_function: Function applied after each Op Node.
             Most of the operations may break some data characteristics, for example vector summing to one. This can be used to fix that.
+            mutation_strength: Controls magnitude of parameter mutations (default 0.1).
+            Higher values cause larger parameter changes during evolution.
         """
         if backend is not None:
             Backend.set_backend(backend)
@@ -96,6 +99,7 @@ class Okapi:
         self.population_multiplier = population_multiplier
         self.tournament_size = tournament_size
         self.minimize_node_count = minimize_node_count
+        self.mutation_strength = mutation_strength
         self.seed = seed
 
         self.objective_functions = objective_functions
@@ -227,20 +231,35 @@ class Okapi:
 
     def _mutate_additional_population(self) -> int:
         mutation_count = 0
+        trees_to_add = []
+
         for tree in self.additional_population:
-            mutation_chance = np.random.rand()
-            if mutation_chance < tree.mutation_chance:
+            current_tree = tree
+
+            # Structural mutation
+            if np.random.rand() < tree.mutation_chance:
                 allowed_mutations = np.array(get_allowed_mutations(tree))
                 chosen_mutation = np.random.choice(allowed_mutations)
-                logger.trace(f"Applying mutation: {chosen_mutation.__name__}")
-                mutated_tree = chosen_mutation(
+                logger.trace(f"Applying structural mutation: {chosen_mutation.__name__}")
+                current_tree = chosen_mutation(
                     tree,
                     models=self.models,
                     ids=self.ids,
                     allowed_ops=self.allowed_ops,
                 )
-                self.additional_population.append(mutated_tree)
                 mutation_count += 1
+
+            # Parameter mutation (applied to structurally mutated tree if any, else original)
+            if np.random.rand() < tree.mutation_chance:
+                logger.trace("Applying parameter mutation")
+                current_tree = mutate_parameters(current_tree, mutation_strength=self.mutation_strength)
+                mutation_count += 1
+
+            # Only add if any mutation occurred
+            if current_tree is not tree:
+                trees_to_add.append(current_tree)
+
+        self.additional_population.extend(trees_to_add)
         return mutation_count
 
     def train(self, iterations: int):

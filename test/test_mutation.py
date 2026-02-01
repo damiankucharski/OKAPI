@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from okapi.mutation import append_new_node_mutation, get_allowed_mutations, lose_branch_mutation, new_tree_from_branch_mutation
-from okapi.node import MeanNode, OperatorNode, ValueNode
+from okapi.mutation import append_new_node_mutation, get_allowed_mutations, lose_branch_mutation, mutate_parameters, new_tree_from_branch_mutation
+from okapi.node import CloseThresholdNode, FarThresholdNode, MeanNode, OperatorNode, ValueNode, WeightedMeanNode
 from okapi.tree import Tree
 
 
@@ -216,3 +216,171 @@ def test_append_new_node_mutation_with_custom_operator(simple_tree, models, id_v
     assert len(new_tree.nodes["op_nodes"]) == 1
     assert isinstance(new_tree.nodes["op_nodes"][0], MeanNode)
     assert new_tree.nodes_count == len(new_tree.root.get_nodes())
+
+
+# ==================== Parameter Mutation Tests ====================
+
+
+@pytest.fixture
+def weighted_mean_tree(models):
+    """Creates a tree with a WeightedMeanNode."""
+    root = ValueNode(None, models[0], "model1")
+    child1 = ValueNode(None, models[1], "model2")
+    child2 = ValueNode(None, models[2], "model3")
+
+    # Create WeightedMeanNode with known weights
+    wmn = WeightedMeanNode([child1, child2], weights=[0.5, 0.25, 0.25])
+    root.add_child(wmn)
+
+    return Tree.create_tree_from_root(root)
+
+
+@pytest.fixture
+def threshold_tree(models):
+    """Creates a tree with a CloseThresholdNode."""
+    root = ValueNode(None, models[0], "model1")
+    child1 = ValueNode(None, models[1], "model2")
+
+    # Create CloseThresholdNode with known threshold
+    thn = CloseThresholdNode([child1], threshold=0.5)
+    root.add_child(thn)
+
+    return Tree.create_tree_from_root(root)
+
+
+class TestWeightedMeanNodeMutateParams:
+    """Tests for WeightedMeanNode.mutate_params()"""
+
+    def test_weights_change_after_mutation(self, models):
+        """Weights should change after mutation."""
+        np.random.seed(42)
+        child = ValueNode(None, models[1], "model2")
+        wmn = WeightedMeanNode([child], weights=[0.6, 0.4])
+        original_weights = wmn._weights.copy()
+
+        wmn.mutate_params(mutation_strength=0.1)
+
+        assert wmn._weights != original_weights
+
+    def test_weights_sum_to_one_after_mutation(self, models):
+        """Weights must still sum to 1 after mutation."""
+        np.random.seed(42)
+        child1 = ValueNode(None, models[1], "model2")
+        child2 = ValueNode(None, models[2], "model3")
+        wmn = WeightedMeanNode([child1, child2], weights=[0.5, 0.3, 0.2])
+
+        for _ in range(10):  # Multiple mutations
+            wmn.mutate_params(mutation_strength=0.2)
+            assert np.isclose(sum(wmn._weights), 1.0)
+
+    def test_weights_stay_positive_after_mutation(self, models):
+        """All weights must remain positive after mutation."""
+        np.random.seed(42)
+        child = ValueNode(None, models[1], "model2")
+        wmn = WeightedMeanNode([child], weights=[0.99, 0.01])  # One very small weight
+
+        for _ in range(20):  # Many mutations to test edge cases
+            wmn.mutate_params(mutation_strength=0.3)
+            assert all(w > 0 for w in wmn._weights)
+
+    def test_larger_strength_causes_larger_changes(self, models):
+        """Larger mutation_strength should cause larger average changes."""
+        np.random.seed(42)
+
+        # Small strength
+        child1 = ValueNode(None, models[1], "model2")
+        wmn_small = WeightedMeanNode([child1], weights=[0.5, 0.5])
+        original_small = wmn_small._weights.copy()
+        wmn_small.mutate_params(mutation_strength=0.01)
+        change_small = sum(abs(a - b) for a, b in zip(wmn_small._weights, original_small))
+
+        # Large strength
+        np.random.seed(42)  # Same seed for fair comparison
+        child2 = ValueNode(None, models[1], "model2")
+        wmn_large = WeightedMeanNode([child2], weights=[0.5, 0.5])
+        original_large = wmn_large._weights.copy()
+        wmn_large.mutate_params(mutation_strength=0.5)
+        change_large = sum(abs(a - b) for a, b in zip(wmn_large._weights, original_large))
+
+        assert change_large > change_small
+
+
+class TestThresholdNodeMutateParams:
+    """Tests for ThresholdNode.mutate_params()"""
+
+    def test_threshold_changes_after_mutation(self, models):
+        """Threshold should change after mutation."""
+        np.random.seed(42)
+        child = ValueNode(None, models[1], "model2")
+        thn = CloseThresholdNode([child], threshold=0.5)
+        original_threshold = thn.threshold
+
+        thn.mutate_params(mutation_strength=0.1)
+
+        assert thn.threshold != original_threshold
+
+    def test_threshold_stays_in_valid_range(self, models):
+        """Threshold must stay in [0, 1] after mutation."""
+        np.random.seed(42)
+
+        # Test near lower bound
+        child1 = ValueNode(None, models[1], "model2")
+        thn_low = CloseThresholdNode([child1], threshold=0.05)
+        for _ in range(20):
+            thn_low.mutate_params(mutation_strength=0.3)
+            assert 0.0 <= thn_low.threshold <= 1.0
+
+        # Test near upper bound
+        child2 = ValueNode(None, models[1], "model2")
+        thn_high = FarThresholdNode([child2], threshold=0.95)
+        for _ in range(20):
+            thn_high.mutate_params(mutation_strength=0.3)
+            assert 0.0 <= thn_high.threshold <= 1.0
+
+
+class TestMutateParametersFunction:
+    """Tests for the mutate_parameters() function."""
+
+    def test_returns_new_tree(self, weighted_mean_tree):
+        """mutate_parameters should return a new tree, not modify in place."""
+        original_tree = weighted_mean_tree
+        mutated_tree = mutate_parameters(original_tree, mutation_strength=0.1)
+
+        assert mutated_tree is not original_tree
+
+    def test_mutates_all_parametrized_nodes(self, models):
+        """All parametrized nodes should be mutated."""
+        np.random.seed(42)
+
+        # Create tree with multiple parametrized nodes
+        root = ValueNode(None, models[0], "model1")
+        child1 = ValueNode(None, models[1], "model2")
+        child2 = ValueNode(None, models[2], "model3")
+
+        wmn = WeightedMeanNode([child1], weights=[0.6, 0.4])
+        thn = CloseThresholdNode([child2], threshold=0.5)
+
+        root.add_child(wmn)
+        root.add_child(thn)
+
+        tree = Tree.create_tree_from_root(root)
+
+        # Get original values
+        original_wmn_weights = tree.nodes["op_nodes"][0]._weights.copy()
+        original_thn_threshold = tree.nodes["op_nodes"][1].threshold
+
+        mutated_tree = mutate_parameters(tree, mutation_strength=0.1)
+
+        # Both should have changed
+        assert mutated_tree.nodes["op_nodes"][0]._weights != original_wmn_weights
+        assert mutated_tree.nodes["op_nodes"][1].threshold != original_thn_threshold
+
+    def test_mean_node_unaffected(self, medium_tree):
+        """MeanNode has no parameters, should be unaffected."""
+        np.random.seed(42)
+        original_code = medium_tree.nodes["op_nodes"][0].code
+
+        mutated_tree = mutate_parameters(medium_tree, mutation_strength=0.1)
+
+        # MeanNode code should be unchanged (it's just "MN")
+        assert mutated_tree.nodes["op_nodes"][0].code == original_code == "MN"
