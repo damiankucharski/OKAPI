@@ -5,6 +5,7 @@ import pytest
 
 from okapi.globals import BACKEND as B
 from okapi.node import OperatorNode, ValueNode, WeightedMeanNode
+from okapi.operation import Operation
 from okapi.tree import Tree
 
 
@@ -15,8 +16,8 @@ def value_op_base_set():
 
     nset = {
         "A": ValueNode(None, x(), "A"),
-        "B": OperatorNode(None),
-        "C": OperatorNode(None),
+        "B": OperatorNode(Operation()),
+        "C": OperatorNode(Operation()),
         "D": ValueNode(None, x(), "D"),
         "E": ValueNode(None, x(), "E"),
         "F": ValueNode(None, x(), "F"),
@@ -228,7 +229,7 @@ def test_save_and_load_architecture_weighted_mean(weighted_mean_tree):
 
     tree.save_tree_architecture(path)
     loaded_tree = Tree.load_tree_architecture(path)
-    np.testing.assert_equal(loaded_tree.nodes["op_nodes"][0].weights, weighted_mean_tree["B"].weights)
+    np.testing.assert_equal(loaded_tree.nodes["op_nodes"][0].operation.weights, weighted_mean_tree["B"].weights)
 
 
 def test_save_and_load_tree_weighted_tree(weighted_mean_tree):
@@ -250,7 +251,7 @@ def test_save_and_load_tree_weighted_tree(weighted_mean_tree):
 
     loaded_tree, _ = Tree.load_tree(path, Path(".test_dump/test_tensors"))
 
-    np.testing.assert_equal(loaded_tree.nodes["op_nodes"][0].weights, weighted_mean_tree["B"].weights)
+    np.testing.assert_equal(loaded_tree.nodes["op_nodes"][0].operation.weights, weighted_mean_tree["B"].weights)
 
     for tree_node, loaded_tree_node in zip(tree.nodes["value_nodes"], loaded_tree.nodes["value_nodes"], strict=False):
         assert tree_node.id == loaded_tree_node.id
@@ -264,7 +265,7 @@ def duplicated_nodes_set():
 
     nset = {
         "A": ValueNode(None, x(), "A"),
-        "B": OperatorNode(None),
+        "B": OperatorNode(Operation()),
         "D": ValueNode(None, x(), "A"),
         "E": ValueNode(None, x(), "D"),
         "F": ValueNode(None, x(), "C"),

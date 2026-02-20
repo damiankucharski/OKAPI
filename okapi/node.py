@@ -6,6 +6,15 @@ from loguru import logger
 from okapi.globals import BACKEND as B
 from okapi.globals import postprocessing_function as PF
 from okapi.lib_types import Tensor
+from okapi.operation import (
+    CloseThresholdOp,
+    FarThresholdOp,
+    MaxOp,
+    MeanOp,
+    MinOp,
+    Operation,
+    WeightedMeanOp,
+)
 
 T = TypeVar("T", bound="Node")
 
@@ -187,25 +196,42 @@ class ValueNode(Node):
 
 class OperatorNode(Node):
     """
-    Abstract Base Class for an Operator Node in a computational tree.
+    Operator Node in a computational tree.
 
-    Reduction Operator Nodes are specialized Operator Nodes capable
-    of performing reduction operations like mean, max, min, etc., on tensors.
+    Uses an Operation strategy to define the reduction operation (mean, max, min, etc.)
+    and manage any associated state (e.g., weights for weighted mean).
     """
 
     def __init__(
         self,
-        children: Optional[Sequence[ValueNode]],
+        operation: Operation,
+        children: Optional[Sequence[ValueNode]] = None,
     ):
+        self.operation = operation
         super().__init__(children)
 
+    def add_child(self, child_node: Node):
+        super().add_child(child_node)
+        self.operation.on_child_added(self, child_node)
+
+    def remove_child(self, child_node: Node) -> Node:
+        index = self.children.index(child_node)
+        super().remove_child(child_node)
+        self.operation.on_child_removed(self, child_node, index)
+        return child_node
+
+    def replace_child(self, child, replacement_node):
+        super().replace_child(child, replacement_node)
+        self.operation.on_child_replaced(self, child, replacement_node)
+
     def calculate(self):
-        logger.trace(f"Calculating value for {self.__class__.__name__}")
+        logger.trace(f"Calculating value for OperatorNode with {self.operation.__class__.__name__}")
+        self.operation.on_before_calculate(self)
         concat = self._concat()
         logger.trace(f"Concatenated tensor shape: {B.shape(concat)}")
-        post_op = self.op(concat)
+        post_op = self.operation.op(concat)
         logger.trace(f"Post-operation tensor shape: {B.shape(post_op)}")
-        postprocessed = PF(post_op)  # by default passthrough, may change for different tasks
+        postprocessed = PF(post_op)
         return postprocessed
 
     def _concat(self):
@@ -218,200 +244,70 @@ class OperatorNode(Node):
             axis=0,
         )
 
+    def copy(self):
+        return OperatorNode(self.operation.copy())
+
+    @property
+    def code(self) -> str:
+        return self.operation.code
+
+    def __str__(self) -> str:
+        return str(self.operation)
+
     @staticmethod
     def create_node(children):
         raise NotImplementedError()
 
     def op(self, x):
-        return x
+        return self.operation.op(x)
+
+
+# --- Deprecated backward-compatibility wrappers ---
+# These thin subclasses exist for pickle compatibility and old import paths.
+# Use OperatorNode(MeanOp(), children) directly instead.
 
 
 class MeanNode(OperatorNode):
-    """
-    Represents a Mean Node in a computational tree.
+    """Deprecated. Use OperatorNode(MeanOp()) instead."""
 
-    A Mean Node computes the mean along a specified axis of a tensor.
-    """
-
-    def __init__(self, children: Optional[Sequence[ValueNode]]):
-        super().__init__(children)
-
-    def __str__(self) -> str:
-        return "MeanNode"
-
-    def copy(self):
-        return MeanNode(None)
-
-    @property
-    def code(self) -> str:
-        return "MN"
-
-    def op(self, x):
-        return B.mean(x, axis=0)
+    def __init__(self, children: Optional[Sequence[ValueNode]] = None):
+        super().__init__(MeanOp(), children)
 
     @staticmethod
-    def create_node(children):  # TODO: it could be derived from simple vs parametrized OperatorNode
+    def create_node(children):
         return MeanNode(children)
 
 
 class WeightedMeanNode(OperatorNode):
-    """
-    Represents a Weighted Mean Node in a computational tree.
-
-    A Weighted Mean Node computes the mean of a tensor,
-    but with different weights applied to each element.
-    """
+    """Deprecated. Use OperatorNode(WeightedMeanOp(weights), children) instead."""
 
     def __init__(
         self,
-        children: Optional[Sequence[ValueNode]],
-        weights: List[float],
+        children: Optional[Sequence[ValueNode]] = None,
+        weights: Optional[List[float]] = None,
     ):
-        logger.debug(f"Creating WeightedMeanNode with {len(weights) if weights else 0} weights")
-        self._weights = weights
-        super().__init__(children)
-
-        self._weight_sum_assertion()
-        logger.trace(f"WeightedMeanNode initialized with weights: {weights}")
-
-    def op(self, x):
-        weight_shape = (-1, *([1] * (len(x.shape) - 1)))
-        w = B.reshape(self.weights, weight_shape)
-        w = B.to_device(w, x)  # Ensure weights are on same device as input
-        x = x * w
-        x = B.sum(x, axis=0)
-        return x
-
-    def copy(self):
-        return WeightedMeanNode([], [x for x in self._weights])  # this needs to be rethought
-
-    def add_child(self, child_node: Node):
-        logger.debug(f"Adding child to WeightedMeanNode with current weights: {self._weights}")
-        assert isinstance(child_node, ValueNode)
-        child_weight = np.random.uniform(0, 1)
-        adj = 1.0 - child_weight
-
-        logger.trace(f"Generated child weight: {child_weight}, adjustment factor: {adj}")
-        for i, val in enumerate(self._weights):
-            self._weights[i] = val * adj
-        self._weights.append(child_weight)
-        self._weight_sum_assertion()
-
-        super().add_child(child_node)
-        self._weight_length_assertion()
-        logger.debug(f"Child added, new weights: {self._weights}")
-
-    def remove_child(self, child_node: Node):
-        logger.debug(f"Removing child from WeightedMeanNode with current weights: {self._weights}")
-        assert isinstance(child_node, ValueNode), "Child node of WMN must be a ValueNode"
-
-        child_ix = self.children.index(child_node)
-        adj = 1.0 - self._weights[child_ix + 1]  # adjust for parent weight being first
-        weight_removed = self._weights[child_ix + 1]
-        self._weights.pop(child_ix + 1)
-
-        logger.trace(f"Removed weight at index {child_ix + 1} with value {weight_removed}, adjustment factor: {adj}")
-
-        super().remove_child(child_node)
-
-        for i, val in enumerate(self._weights):
-            self._weights[i] = val / adj
-
-        self._weight_sum_assertion()
-        self._weight_length_assertion()
-
-        logger.debug(f"Child removed, new weights: {self._weights}")
-        return child_node
-
-    def replace_child(self, child, replacement_node):
-        super().replace_child(child, replacement_node)
-        self._weight_length_assertion()
-
-    def calculate(self):
-        self._weight_length_assertion()
-        self._weight_sum_assertion()
-        return super().calculate()
-
-    def __str__(self) -> str:
-        return f"WeightedMeanNode with weights: {B.to_numpy(B.tensor(self._weights)).round(2)}"
-
-    @property
-    def code(self) -> str:
-        return "WMN"
+        if weights is None:
+            weights = [1.0]
+        super().__init__(WeightedMeanOp(weights), children)
 
     @property
     def weights(self):
-        w = B.tensor(self._weights)
-        return w
+        return self.operation.weights
+
+    @property
+    def _weights(self):
+        return self.operation._weights
 
     @staticmethod
-    def create_node(children: Sequence[ValueNode]):  # TODO: add tests for that function
-        logger.debug(f"Creating WeightedMeanNode with {len(children)} children")
-        if len(children) == 0:
-            weights = [1.0]
-            logger.trace("No children, setting weight to [1.0]")
-        elif len(children) == 1:
-            parent_weight = np.random.uniform(0, 1)
-            weights = [parent_weight, 1 - parent_weight]
-            logger.trace(f"One child, weights: [{parent_weight}, {1 - parent_weight}]")
-        else:
-            weights = [np.random.uniform(0, 1)]  # initial weight for parent
-            weight_left = 1 - weights[0]
-            logger.trace(f"Multiple children, parent weight: {weights[0]}, remaining: {weight_left}")
-
-            for i in range(len(children) - 1):
-                weights.append(np.random.uniform(0, weight_left))
-                weight_left -= weights[-1]
-                logger.trace(f"Child {i + 1} weight: {weights[-1]}, remaining: {weight_left}")
-
-            weights.append(weight_left)
-            logger.trace(f"Final child weight: {weight_left}")
-
-        node = WeightedMeanNode(children, weights)
-        logger.debug(f"Created WeightedMeanNode with weights: {weights}")
-        return node
-
-    def _weight_sum_assertion(self):
-        weight_sum = np.sum(self._weights)
-        if not np.isclose(weight_sum, 1):
-            logger.error(f"Weights sum to {weight_sum}, not 1.0: {self._weights}")
-            assert np.isclose(weight_sum, 1), "Weights do not sum to 1"
-        logger.trace(f"Weight sum assertion passed: {weight_sum}")
-
-    def _weight_length_assertion(self):
-        expected_length = len(self.children) + 1
-        actual_length = len(self._weights)
-        if actual_length != expected_length:
-            logger.error(f"Weight array length ({actual_length}) does not match expected {expected_length}")
-            assert actual_length == expected_length, "Length of weight array is different than number of adjacent nodes"
-        logger.trace(f"Weight length assertion passed: {actual_length}")
+    def create_node(children: Sequence[ValueNode]):
+        return WeightedMeanOp.create_node(children)
 
 
 class MaxNode(OperatorNode):
-    """
-    Represents a Max Node in a computational tree.
+    """Deprecated. Use OperatorNode(MaxOp()) instead."""
 
-    A Max Node computes the maximum value along a specified axis of a tensor.
-    """
-
-    def __init__(self, children: Optional[Sequence[ValueNode]]):
-        super().__init__(children)
-
-    def __str__(self) -> str:
-        return "MaxNode"
-
-    def copy(self):
-        return MaxNode(None)
-
-    @property
-    def code(self) -> str:
-        return "MAX"
-
-    def op(self, x):
-        return B.max(x, axis=0)
-
-    def adjust_params(self):
-        return
+    def __init__(self, children: Optional[Sequence[ValueNode]] = None):
+        super().__init__(MaxOp(), children)
 
     @staticmethod
     def create_node(children):
@@ -419,30 +315,10 @@ class MaxNode(OperatorNode):
 
 
 class MinNode(OperatorNode):
-    """
-    Represents a Min Node in a computational tree.
+    """Deprecated. Use OperatorNode(MinOp()) instead."""
 
-    A Min Node computes the minimum value along a specified axis of a tensor.
-    """
-
-    def __init__(self, children: Optional[Sequence[ValueNode]]):
-        super().__init__(children)
-
-    def __str__(self) -> str:
-        return "MinNode"
-
-    def copy(self):
-        return MinNode(None)
-
-    @property
-    def code(self) -> str:
-        return "MIN"
-
-    def op(self, x):
-        return B.min(x, axis=0)
-
-    def adjust_params(self):
-        return
+    def __init__(self, children: Optional[Sequence[ValueNode]] = None):
+        super().__init__(MinOp(), children)
 
     @staticmethod
     def create_node(children):
@@ -450,65 +326,15 @@ class MinNode(OperatorNode):
 
 
 class ThresholdNode(OperatorNode):
-    """
-    Chooses values closest (or furthest away) from the provided threshold value)
-    It does not select "whole samples" like the other nodes would in general.
-    If the shape of x (excluding the batch dimension) is non-flat, for example
-    [
-        [
-            [0.2, 0.3],
-            [0.3, 0.3]
-        ],
-        [
-            [0.29, 0.5],
-            [0.5, 0.5]
-        ],
-    ]
-    And threshold == 0.3, for "close" option it will select 3 out of 4 values from first batch
-    element, and 1 out of the second batch element, resulting in the following output:
-    [
-        [0.29, 0.3],
-        [0.3, 0.3]
-    ]
-    """
+    """Deprecated. Use OperatorNode(CloseThresholdOp(threshold)) or OperatorNode(FarThresholdOp(threshold)) instead."""
 
-    def __init__(self, children: Optional[Sequence[ValueNode]], threshold: float, close=True):
-        assert threshold >= 0 or threshold <= 1, f"Threshold must be between 0 and 1 (inclusive) but is equal {threshold}"
-        super().__init__(children)
-        self.close = close
-        self.strclose = "Close" if self.close else "Far"
-        self.threshold = threshold
-
-    def __str__(self) -> str:
-        return f"ThresholdNode{self.strclose} with Threshold = {self.threshold:.2f}"
-
-    def copy(self):
-        return ThresholdNode(None, self.threshold, self.close)
-
-    @property
-    def code(self) -> str:
-        return f"TH{self.strclose}".upper()
-
-    def op(self, x):
-        orig_shape = B.shape(x)
-        adjusted = (x - self.threshold) ** 2
-        adjusted = B.reshape(adjusted, (x.shape[0], -1))
-
-        if self.close:
-            ixes = B.argmin(adjusted, axis=0)
+    def __init__(self, children: Optional[Sequence[ValueNode]] = None, threshold: float = 0.5, close: bool = True):
+        if close:
+            super().__init__(CloseThresholdOp(threshold), children)
         else:
-            ixes = B.argmax(adjusted, axis=0)
-
-        x_reshaped = B.reshape(x, (x.shape[0], -1))
-        col_indices = B.arange(B.shape(x_reshaped)[1], device_ref=x)
-        # Select the value from the row with min/max squared distance in each "column - place"
-        x_selected = x_reshaped[ixes, col_indices]
-        x = B.reshape(x_selected, orig_shape[1:])
-
-        return x
-
-    def adjust_params(self):
-        return
+            super().__init__(FarThresholdOp(threshold), children)
+        self.threshold = threshold
+        self.close = close
 
     @staticmethod
     def create_node(children):
@@ -516,15 +342,10 @@ class ThresholdNode(OperatorNode):
 
 
 class CloseThresholdNode(ThresholdNode):
-    """
-    Chooses values closest (or furthest away) from the provided threshold value)
-    """
+    """Deprecated. Use OperatorNode(CloseThresholdOp(threshold)) instead."""
 
-    def __init__(self, children: Optional[Sequence[ValueNode]], threshold: float):
+    def __init__(self, children: Optional[Sequence[ValueNode]] = None, threshold: float = 0.5):
         super().__init__(children, threshold, True)
-
-    def copy(self):
-        return CloseThresholdNode(None, self.threshold)
 
     @staticmethod
     def create_node(children):
@@ -533,15 +354,10 @@ class CloseThresholdNode(ThresholdNode):
 
 
 class FarThresholdNode(ThresholdNode):
-    """
-    Chooses values closest (or furthest away) from the provided threshold value)
-    """
+    """Deprecated. Use OperatorNode(FarThresholdOp(threshold)) instead."""
 
-    def __init__(self, children: Optional[Sequence[ValueNode]], threshold: float):
+    def __init__(self, children: Optional[Sequence[ValueNode]] = None, threshold: float = 0.5):
         super().__init__(children, threshold, False)
-
-    def copy(self):
-        return FarThresholdNode(None, self.threshold)
 
     @staticmethod
     def create_node(children):

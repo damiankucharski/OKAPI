@@ -4,12 +4,13 @@ import numpy as np
 from loguru import logger
 
 from okapi.lib_types import Tensor
-from okapi.node import MeanNode, OperatorNode, ValueNode
+from okapi.node import OperatorNode, ValueNode
+from okapi.operation import MeanOp, Operation
 from okapi.tree import Tree
 
 
 def append_new_node_mutation(
-    tree: Tree, models: Sequence[Tensor], ids: None | Sequence[str | int] = None, allowed_ops: tuple[Type[OperatorNode], ...] = (MeanNode,), **kwargs
+    tree: Tree, models: Sequence[Tensor], ids: None | Sequence[str | int] = None, allowed_ops: tuple[Type[Operation], ...] = (MeanOp,), **kwargs
 ):
     """
     Mutation that adds a new node to the tree.
@@ -48,7 +49,7 @@ def append_new_node_mutation(
     logger.trace(f"Created new value node with ID: {ids[idx_model]}")
 
     if isinstance(node, ValueNode):
-        random_op: Type[OperatorNode] = np.random.choice(np.asarray(allowed_ops))
+        random_op: Type[Operation] = np.random.choice(np.asarray(allowed_ops))
         logger.debug(f"Selected random operator type: {random_op.__name__}")
         op_node: OperatorNode = random_op.create_node([val_node])
         logger.debug("Appending operator node with value node child after selected node")

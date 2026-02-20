@@ -16,7 +16,7 @@ from okapi.globals import BACKEND as B
 from okapi.globals import DEVICE, set_postprocessing_function
 from okapi.lib_types import Tensor
 from okapi.mutation import get_allowed_mutations
-from okapi.node import OperatorNode
+from okapi.operation import Operation
 from okapi.operators import CLOSE_THRESHOLD, FAR_THRESHOLD, MAX, MEAN, MIN, WEIGHTED_MEAN
 from okapi.pareto import _get_optimal_point_based_on_list_of_objective_functions, maximize
 from okapi.population import choose_pareto, choose_pareto_then_proximity, initialize_individuals
@@ -60,7 +60,7 @@ class Okapi:
         minimize_node_count: bool = True,
         objective_functions: Sequence[Callable[[Tree, lib_types.Tensor], float]] = (average_precision_fitness,),
         objectives: Sequence[Callable[[float, float], bool]] = (maximize,),
-        allowed_ops: Sequence[Type[OperatorNode]] = (MEAN, MIN, MAX, WEIGHTED_MEAN, FAR_THRESHOLD, CLOSE_THRESHOLD),
+        allowed_ops: Sequence[Type[Operation]] = (MEAN, MIN, MAX, WEIGHTED_MEAN, FAR_THRESHOLD, CLOSE_THRESHOLD),
         callbacks: Iterable[Callback] = tuple(),
         backend: Union[str, None] = None,
         seed: int = 0,

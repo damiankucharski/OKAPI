@@ -1,16 +1,18 @@
 """
-Provides convenient aliases for operator node types.
+Provides convenient aliases for operator types.
 
-This module exposes the various operator node types from okapi.node
+This module exposes the various Operation types from okapi.operation
 with simpler names for easier importing and usage.
+
+The deprecated node wrappers are also re-exported for backward compatibility.
 """
 
-from okapi.node import CloseThresholdNode, FarThresholdNode, MaxNode, MeanNode, MinNode, WeightedMeanNode
+from okapi.operation import CloseThresholdOp, FarThresholdOp, MaxOp, MeanOp, MinOp, WeightedMeanOp
 
-# Operator node types available for use in trees
-MIN = MinNode
-MAX = MaxNode
-MEAN = MeanNode
-WEIGHTED_MEAN = WeightedMeanNode
-FAR_THRESHOLD = FarThresholdNode
-CLOSE_THRESHOLD = CloseThresholdNode
+# Operation types available for use in trees
+MIN = MinOp
+MAX = MaxOp
+MEAN = MeanOp
+WEIGHTED_MEAN = WeightedMeanOp
+FAR_THRESHOLD = FarThresholdOp
+CLOSE_THRESHOLD = CloseThresholdOp

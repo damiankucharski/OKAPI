@@ -17,6 +17,7 @@ from okapi.node import (
     check_if_both_types_operators,
     check_if_both_types_values,
 )
+from okapi.operation import Operation
 
 
 @pytest.fixture(autouse=True)
@@ -146,7 +147,7 @@ def value_op_base_set():
 
     nset = {
         "A": ValueNode(None, x(), 1),
-        "B": OperatorNode(None),
+        "B": OperatorNode(Operation()),
         "C": ValueNode(None, x(), 2),
         "D": ValueNode(None, x(), 3),
     }
@@ -310,7 +311,7 @@ def test_weighted_mean_copy_subtree(weighted_mean_tree):
     assert C.parent is B
     assert D.parent is B
 
-    np.testing.assert_equal(B.weights, weighted_mean_tree["B"].weights)
+    np.testing.assert_equal(B.operation.weights, weighted_mean_tree["B"].weights)
 
 
 @pytest.fixture
