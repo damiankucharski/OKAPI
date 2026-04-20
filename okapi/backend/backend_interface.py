@@ -93,3 +93,19 @@ class BackendInterface:
     def arange(n, device_ref=None):
         """Create a range tensor [0, 1, ..., n-1] on same device as reference."""
         raise NotImplementedError()
+
+    @staticmethod
+    def minimum(a, b):
+        """Elementwise minimum of two tensors with identical shape."""
+        raise NotImplementedError()
+
+    @staticmethod
+    def maximum(a, b):
+        """Elementwise maximum of two tensors with identical shape."""
+        raise NotImplementedError()
+
+    @staticmethod
+    def no_grad():
+        """Context manager disabling autograd for the enclosed block. On backends
+        without autograd (numpy), returns a null context."""
+        raise NotImplementedError()

@@ -59,40 +59,43 @@ def average_precision_fitness(
     """
     from torchmetrics.classification import AveragePrecision
 
-    # Handle both Tree objects and direct tensors
-    if isinstance(tree_or_prediction, Tree):
-        evaluation = tree_or_prediction.evaluation
-    else:
-        evaluation = tree_or_prediction
+    with torch.no_grad():
+        # Handle both Tree objects and direct tensors
+        if isinstance(tree_or_prediction, Tree):
+            # predict() wraps evaluation in no_grad and toggles eager-free, so
+            # GPU peak memory is bounded during large GP populations.
+            evaluation = tree_or_prediction.predict()
+        else:
+            evaluation = tree_or_prediction
 
-    # Convert to torch.Tensor for torchmetrics compatibility
-    if not isinstance(evaluation, torch.Tensor):
-        pred = torch.tensor(B.to_numpy(evaluation))
-    else:
-        pred = evaluation
+        # Convert to torch.Tensor for torchmetrics compatibility
+        if not isinstance(evaluation, torch.Tensor):
+            pred = torch.tensor(B.to_numpy(evaluation))
+        else:
+            pred = evaluation
 
-    if not isinstance(gt, torch.Tensor):
-        gt = torch.tensor(B.to_numpy(gt))
+        if not isinstance(gt, torch.Tensor):
+            gt = torch.tensor(B.to_numpy(gt))
 
-    # Infer number of classes from ground truth
-    num_classes = _infer_num_classes(gt, task)
-    gt = gt.squeeze().int()
+        # Infer number of classes from ground truth
+        num_classes = _infer_num_classes(gt, task)
+        gt = gt.squeeze().int()
 
-    # Create metric with appropriate parameters based on task
-    if task == "multiclass":
-        metric = AveragePrecision(task=task, num_classes=num_classes)
-    elif task == "multilabel":
-        metric = AveragePrecision(task=task, num_labels=num_classes)
-    else:  # binary
-        if pred.dim() > 1:
-            if pred.shape[1] == 2:
-                pred = pred[:, 1]
-            elif pred.shape[1] == 1:
-                pred = pred.squeeze()
-        metric = AveragePrecision(task=task)
+        # Create metric with appropriate parameters based on task
+        if task == "multiclass":
+            metric = AveragePrecision(task=task, num_classes=num_classes)
+        elif task == "multilabel":
+            metric = AveragePrecision(task=task, num_labels=num_classes)
+        else:  # binary
+            if pred.dim() > 1:
+                if pred.shape[1] == 2:
+                    pred = pred[:, 1]
+                elif pred.shape[1] == 1:
+                    pred = pred.squeeze()
+            metric = AveragePrecision(task=task)
 
-    # Calculate and return the score
-    return metric(pred, gt).item()
+        # Calculate and return the score
+        return metric(pred, gt).item()
 
 
 def roc_auc_score_fitness(
@@ -119,35 +122,38 @@ def roc_auc_score_fitness(
     """
     from torchmetrics.classification import AUROC
 
-    # Handle both Tree objects and direct tensors
-    if isinstance(tree_or_prediction, Tree):
-        evaluation = tree_or_prediction.evaluation
-    else:
-        evaluation = tree_or_prediction
+    with torch.no_grad():
+        # Handle both Tree objects and direct tensors
+        if isinstance(tree_or_prediction, Tree):
+            # predict() wraps evaluation in no_grad and toggles eager-free, so
+            # GPU peak memory is bounded during large GP populations.
+            evaluation = tree_or_prediction.predict()
+        else:
+            evaluation = tree_or_prediction
 
-    # Convert to torch.Tensor for torchmetrics compatibility
-    if not isinstance(evaluation, torch.Tensor):
-        pred = torch.tensor(B.to_numpy(evaluation))
-    else:
-        pred = evaluation
+        # Convert to torch.Tensor for torchmetrics compatibility
+        if not isinstance(evaluation, torch.Tensor):
+            pred = torch.tensor(B.to_numpy(evaluation))
+        else:
+            pred = evaluation
 
-    if not isinstance(gt, torch.Tensor):
-        gt = torch.tensor(B.to_numpy(gt))
+        if not isinstance(gt, torch.Tensor):
+            gt = torch.tensor(B.to_numpy(gt))
 
-    # Infer number of classes from ground truth
-    num_classes = _infer_num_classes(gt, task)
-    gt = gt.squeeze().int()
+        # Infer number of classes from ground truth
+        num_classes = _infer_num_classes(gt, task)
+        gt = gt.squeeze().int()
 
-    # Create metric with appropriate parameters based on task
-    if task == "multiclass":
-        metric = AUROC(task=task, num_classes=num_classes)
-    elif task == "multilabel":
-        metric = AUROC(task=task, num_labels=num_classes)
-    else:  # binary
-        metric = AUROC(task=task)
+        # Create metric with appropriate parameters based on task
+        if task == "multiclass":
+            metric = AUROC(task=task, num_classes=num_classes)
+        elif task == "multilabel":
+            metric = AUROC(task=task, num_labels=num_classes)
+        else:  # binary
+            metric = AUROC(task=task)
 
-    # Calculate and return the score
-    return metric(pred, gt).item()
+        # Calculate and return the score
+        return metric(pred, gt).item()
 
 
 def accuracy_fitness(
@@ -173,35 +179,38 @@ def accuracy_fitness(
     """
     from torchmetrics.classification import Accuracy
 
-    # Handle both Tree objects and direct tensors
-    if isinstance(tree_or_prediction, Tree):
-        evaluation = tree_or_prediction.evaluation
-    else:
-        evaluation = tree_or_prediction
+    with torch.no_grad():
+        # Handle both Tree objects and direct tensors
+        if isinstance(tree_or_prediction, Tree):
+            # predict() wraps evaluation in no_grad and toggles eager-free, so
+            # GPU peak memory is bounded during large GP populations.
+            evaluation = tree_or_prediction.predict()
+        else:
+            evaluation = tree_or_prediction
 
-    # Convert to torch.Tensor for torchmetrics compatibility
-    if not isinstance(evaluation, torch.Tensor):
-        pred = torch.tensor(B.to_numpy(evaluation))
-    else:
-        pred = evaluation
+        # Convert to torch.Tensor for torchmetrics compatibility
+        if not isinstance(evaluation, torch.Tensor):
+            pred = torch.tensor(B.to_numpy(evaluation))
+        else:
+            pred = evaluation
 
-    if not isinstance(gt, torch.Tensor):
-        gt = torch.tensor(B.to_numpy(gt))
+        if not isinstance(gt, torch.Tensor):
+            gt = torch.tensor(B.to_numpy(gt))
 
-    # Infer number of classes from ground truth
-    num_classes = _infer_num_classes(gt, task)
-    gt = gt.squeeze().int()
+        # Infer number of classes from ground truth
+        num_classes = _infer_num_classes(gt, task)
+        gt = gt.squeeze().int()
 
-    # Create metric with appropriate parameters based on task
-    if task == "multiclass":
-        metric = Accuracy(task=task, num_classes=num_classes)
-    elif task == "multilabel":
-        metric = Accuracy(task=task, num_labels=num_classes)
-    else:  # binary
-        metric = Accuracy(task=task)
+        # Create metric with appropriate parameters based on task
+        if task == "multiclass":
+            metric = Accuracy(task=task, num_classes=num_classes)
+        elif task == "multilabel":
+            metric = Accuracy(task=task, num_labels=num_classes)
+        else:  # binary
+            metric = Accuracy(task=task)
 
-    # Calculate and return the score
-    return metric(pred, gt).item()
+        # Calculate and return the score
+        return metric(pred, gt).item()
 
 
 # Convenience partial functions for different classification tasks

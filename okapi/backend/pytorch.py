@@ -97,3 +97,15 @@ class PyTorchBackend(BackendInterface):
         if device_ref is not None:
             return torch.arange(n, device=device_ref.device)
         return torch.arange(n)
+
+    @staticmethod
+    def minimum(a, b):
+        return torch.minimum(a, b)
+
+    @staticmethod
+    def maximum(a, b):
+        return torch.maximum(a, b)
+
+    @staticmethod
+    def no_grad():
+        return torch.no_grad()

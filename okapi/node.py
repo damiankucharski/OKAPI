@@ -24,6 +24,13 @@ class Node:
         children (List[Node]): A list of references to a children nodes.
     """
 
+    # When True, intermediate ValueNode.evaluation results are freed eagerly during
+    # tree evaluation (inside OperatorNode._concat / streaming reductions) as soon
+    # as a parent consumes them. Toggled by Tree.predict() via try/finally so that
+    # direct calls to Node.calculate() keep the older "caches remain for inspection"
+    # behavior used by existing tests and debugging workflows.
+    _EAGER_FREE_EVALS: bool = False
+
     def __init__(self, children: Optional[Sequence["Node"]] = None):
         """
         Create a node
@@ -211,12 +218,37 @@ class OperatorNode(Node):
     def _concat(self):
         assert self.parent is not None, "OperatorNode must have a parent to be calculated"
         parent: ValueNode = cast(ValueNode, self.parent)
-        parent_eval = parent.evaluation if parent.evaluation is not None else parent.value
+        used_parent_eval = parent.evaluation is not None
+        parent_eval = parent.evaluation if used_parent_eval else parent.value
         logger.trace(f"Concatenating parent and {len(self.children)} children tensors")
-        return B.concat(
+        concat = B.concat(
             [B.unsqueeze(parent_eval, axis=0)] + [B.unsqueeze(child.calculate(), axis=0) for child in self.children],
             axis=0,
         )
+        if Node._EAGER_FREE_EVALS:
+            if used_parent_eval:
+                parent.evaluation = None
+            for child in self.children:
+                if isinstance(child, ValueNode):
+                    child.evaluation = None
+        return concat
+
+    def _stream_inputs(self):
+        """Yield parent_eval and each child's evaluation one at a time for
+        streaming reductions. With _EAGER_FREE_EVALS on, cached evaluations are
+        nulled immediately after being yielded so the consumer's `+=` / min /
+        max accumulation can reclaim the underlying GPU tensor before moving
+        on to the next child. parent.value (base tensor) is never touched."""
+        assert self.parent is not None, "OperatorNode must have a parent to be calculated"
+        parent: ValueNode = cast(ValueNode, self.parent)
+        used_parent_eval = parent.evaluation is not None
+        yield parent.evaluation if used_parent_eval else parent.value
+        if Node._EAGER_FREE_EVALS and used_parent_eval:
+            parent.evaluation = None
+        for child in self.children:
+            yield child.calculate()
+            if Node._EAGER_FREE_EVALS and isinstance(child, ValueNode):
+                child.evaluation = None
 
     @staticmethod
     def create_node(children):
@@ -261,6 +293,17 @@ class MeanNode(OperatorNode):
     def op(self, x):
         return B.mean(x, axis=0)
 
+    def calculate(self):
+        running_sum = None
+        count = 0
+        for tensor in self._stream_inputs():
+            if running_sum is None:
+                running_sum = B.clone(tensor)
+            else:
+                running_sum += tensor
+            count += 1
+        return PF(running_sum / count)
+
     @staticmethod
     def create_node(children):  # TODO: it could be derived from simple vs parametrized OperatorNode
         return MeanNode(children)
@@ -293,6 +336,18 @@ class WeightedMeanNode(OperatorNode):
         x = x * w
         x = B.sum(x, axis=0)
         return x
+
+    def calculate(self):
+        self._weight_length_assertion()
+        self._weight_sum_assertion()
+        weights = self._weights
+        running_sum = None
+        for i, tensor in enumerate(self._stream_inputs()):
+            if running_sum is None:
+                running_sum = tensor * weights[i]
+            else:
+                running_sum += tensor * weights[i]
+        return PF(running_sum)
 
     def copy(self):
         return WeightedMeanNode([], [x for x in self._weights])  # this needs to be rethought
@@ -338,11 +393,6 @@ class WeightedMeanNode(OperatorNode):
     def replace_child(self, child, replacement_node):
         super().replace_child(child, replacement_node)
         self._weight_length_assertion()
-
-    def calculate(self):
-        self._weight_length_assertion()
-        self._weight_sum_assertion()
-        return super().calculate()
 
     def __str__(self) -> str:
         return f"WeightedMeanNode with weights: {B.to_numpy(B.tensor(self._weights)).round(2)}"
@@ -452,6 +502,15 @@ class MaxNode(OperatorNode):
     def op(self, x):
         return B.max(x, axis=0)
 
+    def calculate(self):
+        result = None
+        for tensor in self._stream_inputs():
+            if result is None:
+                result = B.clone(tensor)
+            else:
+                result = B.maximum(result, tensor)
+        return PF(result)
+
     def adjust_params(self):
         return
 
@@ -482,6 +541,15 @@ class MinNode(OperatorNode):
 
     def op(self, x):
         return B.min(x, axis=0)
+
+    def calculate(self):
+        result = None
+        for tensor in self._stream_inputs():
+            if result is None:
+                result = B.clone(tensor)
+            else:
+                result = B.minimum(result, tensor)
+        return PF(result)
 
     def adjust_params(self):
         return

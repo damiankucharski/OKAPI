@@ -1,3 +1,5 @@
+from contextlib import nullcontext
+
 import numpy as np
 from loguru import logger
 
@@ -89,3 +91,15 @@ class NumpyBackend(BackendInterface):
     @staticmethod
     def arange(n, device_ref=None):
         return np.arange(n)
+
+    @staticmethod
+    def minimum(a, b):
+        return np.minimum(a, b)
+
+    @staticmethod
+    def maximum(a, b):
+        return np.maximum(a, b)
+
+    @staticmethod
+    def no_grad():
+        return nullcontext()
