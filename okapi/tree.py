@@ -157,14 +157,25 @@ class Tree:
             fitness = objective_function(prediction, ground_truth)
         """
         logger.debug("Computing prediction with cache management")
-        result = self.evaluation
-        result_copy = B.clone(result)
+        # Scoped eager-free: free per-node .evaluation caches as each parent op
+        # consumes them. try/finally so .calculate() elsewhere keeps the "caches
+        # remain after eval" behavior used by tests and debugging.
+        prev_flag = Node._EAGER_FREE_EVALS
+        Node._EAGER_FREE_EVALS = True
+        try:
+            with B.no_grad():
+                result = self.evaluation
+        finally:
+            Node._EAGER_FREE_EVALS = prev_flag
 
         if clear_cache:
+            # Tree no longer holds a ref to result; caller's alias is unique.
             self._clean_evals()
             logger.trace("Evaluation caches cleared")
-
-        return result_copy
+            return result
+        # Cache kept → result is aliased by self.root.evaluation. Return a clone
+        # so the caller cannot mutate internal state through it.
+        return B.clone(result)
 
     def copy(self):
         """
