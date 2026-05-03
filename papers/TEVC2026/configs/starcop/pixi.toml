@@ -1,0 +1,61 @@
+[workspace]
+name = "starcop"
+version = "0.1.0"
+description = "Semantic segmentation of methane plumes with hyperspectral machine learning models"
+channels = ["pytorch", "conda-forge"]
+platforms = ["linux-64"]
+
+[tasks]
+train = "python -m scripts.train"
+train-easy = "python -m scripts.train dataset.train_csv=train_easy.csv experiment_name=easy_test"
+
+[dependencies]
+python = "3.10.*"
+
+# PyTorch ecosystem - use modern versions
+pytorch = ">=2.0"
+torchvision = "*"
+pytorch-cuda = "12.4"
+
+# Core ML dependencies
+pytorch-lightning = ">=2.0"
+torchmetrics = "*"
+
+# Hydra for config
+hydra-core = "*"
+omegaconf = "*"
+
+# Geospatial
+rasterio = "*"
+geopandas = "*"
+
+# Visualization
+matplotlib = "*"
+seaborn = "*"
+ipython = "*"
+ipykernel = ">=7.1.0,<8"
+
+# ML utilities
+scikit-image = "*"
+scikit-learn = "*"
+numpy = "*"
+pandas = "*"
+
+# Cloud storage
+fsspec = "*"
+gcsfs = "*"
+jupyter = ">=1.1.1,<2"
+pymoo = ">=0.6.1.5,<0.7"
+
+[pypi-dependencies]
+# These are better installed via pip
+segmentation-models-pytorch = "*"
+kornia = "*"
+wandb = "==0.22.0"  # Pinned to avoid 0.23.1 artifact upload bug
+georeader-spaceml = "*"
+
+# OKAPI for GP-based ensemble fusion (local path for development)
+okapi = { path = "./OKAPI", editable = true }
+
+# Install the package itself in editable mode
+starcop = { path = ".", editable = true }

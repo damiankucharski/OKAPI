@@ -1,0 +1,107 @@
+# BCE + Dice Combined Loss Configuration
+# Popular hybrid loss that combines:
+#   - BCE: Pixel-wise binary cross-entropy (local accuracy)
+#   - Dice: Region overlap optimization (global structure)
+#
+# Formula: L = w_bce * BCE + w_dice * Dice
+#   where w_bce + w_dice = 1.0 (default: 0.5 each)
+#
+# Benefits:
+# - BCE handles class imbalance at pixel level
+# - Dice optimizes for segmentation overlap (IoU-like)
+# - Combined: Better than either alone for segmentation tasks
+#
+# Common in medical imaging segmentation (U-Net, nnU-Net)
+
+experiment_name: "bce_dice_combined"
+seed: 42
+
+resume_from_checkpoint: False
+
+wandb:
+  wandb_project: "STARCOP"
+  wandb_entity: "phd-dk"
+  images_logging: "wandb"
+
+dataloader:
+  batch_size: 32
+  num_workers: 16
+
+products_plot: ["rgb_aviris", "mag1c", "label", "pred", "differences"]
+plot_samples: 8
+
+dataset:
+  # Input: mag1c + RGB (HyperSTARCOP configuration)
+  input_products:
+    ["mag1c", "TOA_AVIRIS_640nm", "TOA_AVIRIS_550nm", "TOA_AVIRIS_460nm"]
+  output_products: ["labelbinary"]
+
+  # mag1c weighting (HyperSTARCOP uses mag1c-weighted loss)
+  use_weight_loss: True
+  weight_loss: "weight_mag1c"
+
+  # Training parameters
+  training_size: [128, 128]
+  training_size_overlap: [64, 64]
+  weight_sampling: True
+
+  # Same datasets as baseline for fair comparison
+  root_folder: ${oc.env:STARCOP_DATA_ROOT,/home/s/Data/STARCOP}
+  train_csv: "train_without_okapi.csv"
+  val_csv: "okapi_fusion.csv"
+  test_csv: "test.csv"
+
+model:
+  train: True
+  test: False
+
+  model_mode: "segmentation_output"
+  model_type: "unet_semseg"
+  semseg_backbone: "mobilenet_v2"
+
+  num_classes: 1
+  optimizer: "adam"
+
+  # Hyperparameters (same as baseline)
+  lr: 0.001
+  lr_decay: 0.5
+  lr_patience: 4
+
+  # BCE + DICE COMBINED LOSS
+  # Equal weighting (0.5 each) - standard practice
+  # bce_weight: Weight for BCE term (pixel-wise accuracy)
+  # dice_weight: Weight for Dice term (overlap/IoU)
+  loss: "bce_dice"
+  bce_dice_bce_weight: 0.5
+  bce_dice_dice_weight: 0.5
+  dice_smooth: 1.0  # Smoothing term for Dice (prevents division by zero)
+
+  # BCE uses pos_weight=1 (mag1c weighting handles imbalance)
+  pos_weight: 1
+
+  # Early stopping
+  early_stopping_patience: 8
+
+  # Model selection: F1 (balanced objective, aligns with Dice component)
+  selection_metric: val_f1score
+
+training:
+  accelerator: gpu
+  devices: 1
+  max_epochs: 15
+
+  val_check_interval: 0.5
+  train_log_every_n_steps: 10
+
+hydra:
+  job:
+    chdir: True
+    config:
+      override_dirname:
+        exclude_keys:
+          - experiment_name
+  run:
+    dir: experiments/${experiment_name}/${now:%Y-%m-%d_%H-%M}
+  sweep:
+    dir: experiments
+    subdir: ${hydra.job.override_dirname}/${now:%Y-%m-%d_%H-%M}

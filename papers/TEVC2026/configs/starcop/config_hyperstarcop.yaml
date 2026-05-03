@@ -1,0 +1,113 @@
+# HyperSTARCOP Configuration (CORRECTED)
+# This config implements the paper's HyperSTARCOP with FIXED methodology
+
+experiment_name: "hyperstarcop_corrected"
+seed: 42 # For reproducibility
+
+resume_from_checkpoint: False
+
+wandb:
+  wandb_project: "STARCOP"
+  wandb_entity: "phd-dk"
+  images_logging: "wandb"
+
+dataloader:
+  batch_size: 32
+  num_workers: 16
+
+products_plot: ["rgb_aviris", "mag1c", "label", "pred", "differences"]
+plot_samples: 8
+
+dataset:
+  # Input: mag1c + RGB (HyperSTARCOP configuration)
+  input_products:
+    ["mag1c", "TOA_AVIRIS_640nm", "TOA_AVIRIS_550nm", "TOA_AVIRIS_460nm"]
+  output_products: ["labelbinary"]
+
+  # mag1c weighting (HyperSTARCOP uses mag1c-weighted loss)
+  use_weight_loss: True
+  weight_loss: "weight_mag1c"
+
+  # Training parameters
+  training_size: [128, 128]
+  training_size_overlap: [64, 64]
+  weight_sampling: True
+
+  # CRITICAL: Proper train/val/test separation (FIXED!)
+  root_folder: ${oc.env:STARCOP_DATA_ROOT,/home/s/Data/STARCOP}
+  train_csv: "train_without_okapi.csv" # Training set (no OKAPI samples)
+  val_csv: "okapi_fusion.csv" # Validation set for early stopping
+  test_csv: "test.csv" # Test set (final evaluation only)
+
+model:
+  train: True
+  test: False
+
+  model_mode: "segmentation_output"
+  model_type: "unet_semseg"
+  semseg_backbone: "mobilenet_v2" # Paper uses MobileNetV2
+
+  num_classes: 1
+  optimizer: "adam"
+
+  # CRITICAL: Correct HyperSTARCOP hyperparameters
+  lr: 0.001 # Paper value (NOT 0.0001!)
+  lr_decay: 0.5
+  lr_patience: 4
+
+  # Loss configuration
+  loss: "BCEWithLogitsLoss"
+  pos_weight:
+    1 # HyperSTARCOP uses pos_weight=1 (NOT 15!)
+    # mag1c weighting is applied via weight_loss parameter above
+
+  # Additional loss function parameters (for heterogeneous ensemble)
+  # Dice loss
+  dice_smooth: 1.0
+
+  # Tversky loss (F-beta equivalent: α=1/(1+β²), β_t=β²/(1+β²))
+  # F0.5 (precision): α=0.8, β=0.2 | F1 (balanced): α=0.5, β=0.5 | F2 (recall): α=0.2, β=0.8
+  tversky_alpha: 0.5 # Default: F1 equivalent (balanced)
+  tversky_beta: 0.5
+  tversky_smooth: 1.0
+
+  # Focal loss
+  focal_alpha: 0.25 # Class weight
+  focal_gamma: 2.0 # Focusing parameter
+
+  # BCE+Dice combo loss
+  bce_dice_bce_weight: 0.5
+  bce_dice_dice_weight: 0.5
+
+  # Early stopping
+  early_stopping_patience: 8
+
+  # Model selection metric for checkpoint saving
+  # Options: val_f1score (balanced), val_f05score (precision-focused), val_f2score (recall-focused),
+  #          val_precision, val_recall, val_loss
+  # Recommendation:
+  #   - Balanced models (BCE, Dice): val_f1score
+  #   - Precision-focused (Tversky α>0.5, Focal α<0.5): val_f05score
+  #   - Recall-focused (Tversky α<0.5, Focal α>0.5): val_f2score
+  selection_metric: val_f1score
+
+training:
+  accelerator: gpu
+  devices: 1
+  max_epochs: 15
+
+  val_check_interval: 0.5 # Validate twice per epoch
+  train_log_every_n_steps: 10
+
+hydra:
+  job:
+    chdir: True
+    config:
+      override_dirname:
+        exclude_keys:
+          - experiment_name
+  run:
+    dir: experiments/${experiment_name}/${now:%Y-%m-%d_%H-%M}
+  sweep:
+    dir: experiments
+    subdir: ${hydra.job.override_dirname}/${now:%Y-%m-%d_%H-%M}
