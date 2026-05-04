@@ -1,13 +1,5 @@
 """
-ReBATE feature selection + RandomForest benchmark for MedMNIST classification.
-
-ReBATE selectors are deterministic — run once per dataset, cached to disk.
-100 seeds vary only the RandomForest random_state.
-
-Usage:
-    venvs/rebate/bin/python rebate_medmnist_benchmark.py --dataset all --seed_start 0 --seed_end 100
-    # Quick test
-    venvs/rebate/bin/python rebate_medmnist_benchmark.py --dataset bloodmnist --seed_start 0 --seed_end 2
+ReBATE feature selection + LogisticRegression benchmark for MedMNIST classification.
 """
 
 import argparse
@@ -18,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import LogisticRegression
 from sklearn.metrics import (
     average_precision_score, f1_score, jaccard_score,
     precision_score, recall_score, roc_auc_score,
@@ -131,7 +123,7 @@ def _run_one_seed(args):
         try:
             X_val_sel = fs.transform(X_val)
             X_test_sel = fs.transform(X_test)
-            clf = RandomForestClassifier(random_state=seed, n_jobs=1)
+            clf = LogisticRegression(random_state=seed, n_jobs=1)
             clf.fit(X_val_sel, y_val)
             val_prob = clf.predict_proba(X_val_sel)
             val_metrics = evaluate(y_val, val_prob, n_classes)
