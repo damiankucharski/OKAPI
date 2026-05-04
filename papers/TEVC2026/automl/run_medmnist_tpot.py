@@ -1,23 +1,5 @@
 """
 TPOT ensemble benchmark for MedMNIST classification.
-
-Mirrors OKAPI approach: model predictions as features, train on val, evaluate on test.
-30 models (6 architectures × 5 folds) per dataset, each producing (N, num_classes).
-Objectives: ROC-AUC (optimize), report ROC-AUC/PR-AUC.
-100 seeds for statistical robustness.
-
-Usage:
-    # Single dataset
-    uv run --with "tpot,torch" python tpot_medmnist_benchmark.py \
-        --dataset bloodmnist --seed_start 0 --seed_end 100
-
-    # All datasets
-    uv run --with "tpot,torch" python tpot_medmnist_benchmark.py \
-        --dataset all --seed_start 0 --seed_end 100
-
-    # Quick test
-    uv run --with "tpot,torch" python tpot_medmnist_benchmark.py \
-        --dataset bloodmnist --seed_start 0 --seed_end 2
 """
 
 import argparse

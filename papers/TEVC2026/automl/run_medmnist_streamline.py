@@ -1,21 +1,5 @@
 """
-STREAMLINE benchmark for MedMNIST — uses the real STREAMLINE library.
-
-STREAMLINE is binary-classification only. Only binary MedMNIST datasets are
-supported (breastmnist, pneumoniamnist). Multi-class datasets are skipped.
-
-Pipeline per seed:
-  Phase 1: DataProcessRunner  (5-fold stratified CV on val set)
-  Phase 2: ImputationRunner   (scaling, no imputation needed)
-  Phase 5: ModelExperimentRunner (LR, NB, DT, RF, GB with Optuna tuning)
-  Phase 6: StatsRunner        (collect val CV metrics)
-  Phase 8: ReplicationRunner  (apply trained models to test set)
-
-Best algorithm selected by distance from ideal on val (ROC-AUC, PR-AUC).
-
-Usage:
-    venvs/streamline/bin/python streamline_medmnist_benchmark.py --dataset all --seed_start 0 --seed_end 100
-    venvs/streamline/bin/python streamline_medmnist_benchmark.py --dataset breastmnist --seed_start 0 --seed_end 2
+STREAMLINE benchmark for MedMNIST
 """
 
 import argparse
