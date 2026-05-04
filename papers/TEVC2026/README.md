@@ -32,13 +32,6 @@ This directory intentionally contains scripts and small configuration files only
 - `starcop/pixi.toml`: STARCOP Pixi environment reference.
 - `starcop/config_*.yaml`: representative STARCOP training configs.
 
-## Notes
-
-- The scripts were copied from the working experiment repositories and still contain the original absolute paths in places. Adjust those paths or recreate the expected directory layout before running.
-- The OKAPI library code itself is not duplicated here; install or place it separately as part of the reproducibility repository.
-- STARCOP commands should be run in the STARCOP environment, typically with `pixi run python ...`.
-- AutoML STARCOP scripts are not included here because the final paper-facing STARCOP AutoML results were not used unless rerun on the same final `okapi_data` tensors.
-
 ## Typical Order
 
 1. Train MedMNIST base models with `medmnist/train_medmnist_lightning.py`.
