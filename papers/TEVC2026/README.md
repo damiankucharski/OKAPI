@@ -29,12 +29,13 @@ This directory intentionally contains scripts and small configuration files only
 
 ### `configs/`
 
-- `pixi.toml`: reviewer-facing Pixi environment for the TEVC2026 reproduction scripts.
-- `medmnist_training_pyproject.toml` and `medmnist_training_requirements.txt`: dependency references for MedMNIST model training.
-- `starcop/pixi.toml`: STARCOP Pixi environment reference.
 - `starcop/config_*.yaml`: representative STARCOP training configs.
 
-## Environment
+### Environment
+
+- `pixi.toml`: the single reviewer-facing environment for all TEVC2026 reproduction scripts.
+
+## Environment Setup
 
 From this directory, create the reviewer environment with:
 

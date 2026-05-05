@@ -26,6 +26,7 @@ pytorch-cuda = "12.4.*"
 pytorch-lightning = ">=2.0"
 torchmetrics = "*"
 pillow = "*"
+scikit-image = "*"
 wandb = "==0.22.0"
 
 # STARCOP training / data handling
@@ -53,6 +54,7 @@ help-medmnist-tpot = "python automl/run_medmnist_tpot.py --help"
 help-medmnist-rebate = "python automl/run_medmnist_rebate.py --help"
 help-starcop-okapi = "python starcop/run_starcop_okapi.py --help"
 help-starcop-nsga3 = "python starcop/run_starcop_nsga3.py --help"
+help-starcop-prepare = "python starcop/prepare_starcop_okapi_data.py --help"
 
 # Example invocations. Override paths when storing tensors elsewhere.
 medmnist-okapi-example = "python medmnist/run_medmnist_okapi.py --dataset pneumoniamnist --experiment_id 3 --seed 0"
