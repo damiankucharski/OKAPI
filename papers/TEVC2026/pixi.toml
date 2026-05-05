@@ -14,11 +14,10 @@ pandas = "*"
 scipy = "*"
 scikit-learn = "*"
 pymoo = ">=0.6.1.5,<0.7"
-graphviz = "*"
 matplotlib = "*"
-seaborn = "*"
 tqdm = "*"
 loguru = "*"
+openpyxl = "*"
 
 # PyTorch / MedMNIST training
 pytorch = ">=2.0"
@@ -27,9 +26,7 @@ pytorch-cuda = "12.4.*"
 pytorch-lightning = ">=2.0"
 torchmetrics = "*"
 pillow = "*"
-scikit-image = "*"
-tensorboard = "*"
-tensorboardx = "*"
+wandb = "==0.22.0"
 
 # STARCOP training / data handling
 hydra-core = "*"
@@ -38,16 +35,11 @@ rasterio = "*"
 geopandas = "*"
 fsspec = "*"
 gcsfs = "*"
-
-# Interactive inspection, optional but useful for reviewers
-ipython = "*"
-ipykernel = "*"
-jupyter = "*"
+optuna = "*"
 
 [pypi-dependencies]
 okapi = { path = "../..", editable = true }
 medmnist = ">=3.0.2"
-wandb = "==0.22.0"
 tpot = "*"
 skrebate = "*"
 segmentation-models-pytorch = "*"

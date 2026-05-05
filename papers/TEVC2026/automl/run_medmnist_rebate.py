@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from sklearn.ensemble import LogisticRegression
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     average_precision_score, f1_score, jaccard_score,
     precision_score, recall_score, roc_auc_score,

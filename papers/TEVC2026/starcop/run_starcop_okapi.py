@@ -45,12 +45,52 @@ from okapi.operators import (
     WEIGHTED_MEAN,
 )
 from okapi.pareto import maximize
-from starcop.okapi_fitness import (
-    f1_fitness,
-    iou_fitness,
-    precision_fitness,
-    recall_fitness,
-)
+
+
+def _prediction_tensor(tree_or_prediction):
+    if isinstance(tree_or_prediction, torch.Tensor):
+        return tree_or_prediction
+    return tree_or_prediction.evaluation
+
+
+def _confusion_counts(tree_or_prediction, gt, threshold=0.5):
+    pred = _prediction_tensor(tree_or_prediction)
+    if not isinstance(gt, torch.Tensor):
+        gt = torch.tensor(gt, device=pred.device)
+    elif gt.device != pred.device:
+        gt = gt.to(pred.device)
+    pred_pos = pred > threshold
+    gt_pos = gt > 0.5
+    counts = torch.stack(
+        [
+            (pred_pos & gt_pos).sum().long(),
+            (pred_pos & ~gt_pos).sum().long(),
+            (~pred_pos & gt_pos).sum().long(),
+        ]
+    ).tolist()
+    return counts[0], counts[1], counts[2]
+
+
+def f1_fitness(tree_or_prediction, gt, threshold=0.5):
+    tp, fp, fn = _confusion_counts(tree_or_prediction, gt, threshold)
+    precision = tp / (tp + fp) if (tp + fp) else 0.0
+    recall = tp / (tp + fn) if (tp + fn) else 0.0
+    return 0.0 if precision + recall == 0 else 2 * precision * recall / (precision + recall)
+
+
+def precision_fitness(tree_or_prediction, gt, threshold=0.5):
+    tp, fp, _ = _confusion_counts(tree_or_prediction, gt, threshold)
+    return tp / (tp + fp) if (tp + fp) else 0.0
+
+
+def recall_fitness(tree_or_prediction, gt, threshold=0.5):
+    tp, _, fn = _confusion_counts(tree_or_prediction, gt, threshold)
+    return tp / (tp + fn) if (tp + fn) else 0.0
+
+
+def iou_fitness(tree_or_prediction, gt, threshold=0.5):
+    tp, fp, fn = _confusion_counts(tree_or_prediction, gt, threshold)
+    return tp / (tp + fp + fn) if (tp + fp + fn) else 0.0
 
 # Paths relative to STARCOP/ directory
 STARCOP_DIR = Path(__file__).resolve().parent.parent.parent / "STARCOP"
