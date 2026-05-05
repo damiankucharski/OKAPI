@@ -1,0 +1,67 @@
+[workspace]
+name = "okapi-tevc2026-reproduction"
+version = "0.1.0"
+description = "Reviewer environment for the OKAPI TEVC 2026 experiment reproduction scripts"
+channels = ["pytorch", "nvidia", "conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = "3.10.*"
+
+# OKAPI / numerical stack
+numpy = "*"
+pandas = "*"
+scipy = "*"
+scikit-learn = "*"
+pymoo = ">=0.6.1.5,<0.7"
+graphviz = "*"
+matplotlib = "*"
+seaborn = "*"
+tqdm = "*"
+loguru = "*"
+
+# PyTorch / MedMNIST training
+pytorch = ">=2.0"
+torchvision = "*"
+pytorch-cuda = "12.4.*"
+pytorch-lightning = ">=2.0"
+torchmetrics = "*"
+pillow = "*"
+scikit-image = "*"
+tensorboard = "*"
+tensorboardx = "*"
+
+# STARCOP training / data handling
+hydra-core = "*"
+omegaconf = "*"
+rasterio = "*"
+geopandas = "*"
+fsspec = "*"
+gcsfs = "*"
+
+# Interactive inspection, optional but useful for reviewers
+ipython = "*"
+ipykernel = "*"
+jupyter = "*"
+
+[pypi-dependencies]
+okapi = { path = "../..", editable = true }
+medmnist = ">=3.0.2"
+wandb = "==0.22.0"
+tpot = "*"
+skrebate = "*"
+segmentation-models-pytorch = "*"
+kornia = "*"
+georeader-spaceml = "*"
+
+[tasks]
+help-medmnist-okapi = "python medmnist/run_medmnist_okapi.py --help"
+help-medmnist-alternatives = "python medmnist/run_medmnist_alternatives.py --help"
+help-medmnist-tpot = "python automl/run_medmnist_tpot.py --help"
+help-medmnist-rebate = "python automl/run_medmnist_rebate.py --help"
+help-starcop-okapi = "python starcop/run_starcop_okapi.py --help"
+help-starcop-nsga3 = "python starcop/run_starcop_nsga3.py --help"
+
+# Example invocations. Override paths when storing tensors elsewhere.
+medmnist-okapi-example = "python medmnist/run_medmnist_okapi.py --dataset pneumoniamnist --experiment_id 3 --seed 0"
+medmnist-alternatives-example = "python medmnist/run_medmnist_alternatives.py --dataset pneumoniamnist --seed 0"

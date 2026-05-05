@@ -9,8 +9,9 @@ This directory intentionally contains scripts and small configuration files only
 ### `medmnist/`
 
 - `train_medmnist_lightning.py`: train MedMNIST base neural networks with the Lightning implementation.
-- `run_medmnist_okapi.py`: run one MedMNIST OKAPI experiment for a dataset/config/seed.
-- `run_medmnist_alternatives.py`: run one MedMNIST alternative-method experiment.
+- `run_medmnist_okapi.py`: run one MedMNIST OKAPI experiment for a dataset/config/seed using the `okapi` package.
+- `run_medmnist_alternatives.py`: run one MedMNIST alternative-method experiment (Simple Average, Logistic Regression stacking, and NSGA-III).
+- `alternative_methods_benchmark.py`: helper module used by `run_medmnist_alternatives.py`.
 
 ### `starcop/`
 
@@ -28,9 +29,33 @@ This directory intentionally contains scripts and small configuration files only
 
 ### `configs/`
 
+- `pixi.toml`: reviewer-facing Pixi environment for the TEVC2026 reproduction scripts.
 - `medmnist_training_pyproject.toml` and `medmnist_training_requirements.txt`: dependency references for MedMNIST model training.
 - `starcop/pixi.toml`: STARCOP Pixi environment reference.
 - `starcop/config_*.yaml`: representative STARCOP training configs.
+
+## Environment
+
+From this directory, create the reviewer environment with:
+
+```bash
+pixi install
+```
+
+Then run scripts through `pixi run`, for example:
+
+```bash
+pixi run help-medmnist-alternatives
+pixi run python medmnist/run_medmnist_alternatives.py --dataset pneumoniamnist --seed 0
+```
+
+## Notes
+
+- MedMNIST scripts expect prediction tensors under `data_technical_paper/models/{dataset}/{train,valid,test}/` and ground-truth tensors under `data_technical_paper/gt/{dataset}/{train,val,test}.pt` by default. Override these with `--preds-dir` and `--gt-dir`.
+- The Pixi environment installs the local OKAPI package in editable mode. If running these scripts outside this repository, set `OKAPI_REPO=/path/to/OKAPI` before running MedMNIST OKAPI or alternative-method scripts.
+- STREAMLINE is expected at `automl/venvs/streamline_repo`, matching `automl/run_medmnist_streamline.py`. Clone the STREAMLINE source there before running that specific comparison.
+- STARCOP commands should be run in the STARCOP environment, typically with `pixi run python ...`.
+- AutoML STARCOP scripts are not included here because the final paper-facing STARCOP AutoML results were not used unless rerun on the same final `okapi_data` tensors.
 
 ## Typical Order
 

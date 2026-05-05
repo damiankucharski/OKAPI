@@ -9,8 +9,7 @@ Computes test-set performance for various ensemble strategies on STARCOP:
 Memory-efficient: processes images in chunks, never flattens all at once.
 
 Usage:
-    cd /home/s/Projects/OKAPI_PAPER_AFTER_REVIEW/REBUTTAL_WORK
-    /home/s/Projects/OKAPI_PAPER_AFTER_REVIEW/GIRAFFE/.venv/bin/python starcop_ensemble_baselines.py
+    python starcop/run_starcop_ensemble_baselines.py
 """
 
 import csv
