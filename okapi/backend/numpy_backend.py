@@ -20,6 +20,10 @@ class NumpyBackend(BackendInterface):
         return np.mean(x, axis)
 
     @staticmethod
+    def median(x, axis=None):
+        return np.median(x, axis)
+
+    @staticmethod
     def max(x, axis=None):
         return np.max(x, axis)
 

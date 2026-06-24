@@ -24,6 +24,10 @@ class BackendInterface:
         raise NotImplementedError()
 
     @staticmethod
+    def median(x, axis=None):
+        raise NotImplementedError()
+
+    @staticmethod
     def max(x, axis=None):
         raise NotImplementedError()
 

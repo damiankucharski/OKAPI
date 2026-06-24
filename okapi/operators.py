@@ -12,6 +12,8 @@ from okapi.node import (
     MaxNode,
     MeanNode,
     MinNode,
+    SoftMedianNode,
+    TrustGatedBlend,
     WeightedMeanNode,
 )
 
@@ -23,3 +25,5 @@ WEIGHTED_MEAN = WeightedMeanNode
 FAR_THRESHOLD = FarThresholdNode
 CLOSE_THRESHOLD = CloseThresholdNode
 LOGIT_MEAN = LogitMeanNode
+SOFT_MEDIAN = SoftMedianNode
+TRUST_GATED_BLEND = TrustGatedBlend

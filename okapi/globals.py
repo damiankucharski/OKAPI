@@ -50,6 +50,44 @@ def set_postprocessing_function(func):
     postprocessing_function.set_postprocessing_function(func)
 
 
+# ---- Per-base-model metadata (e.g. trust scores) read by ValueNodes ----
+class _ModelMetadataRegistry:
+    """Global ``model_id -> metadata dict`` map consulted by ``ValueNode`` at
+    creation, so meta signals computed once by the caller (e.g. trust from
+    ``okapi.meta.model_trust``) reach every value node — initial population,
+    mutation, crossover-copy and seeding — without threading them through the GP.
+    """
+
+    def __init__(self):
+        self._d: dict = {}
+
+    def set(self, mapping):
+        self._d = dict(mapping) if mapping else {}
+
+    def get(self, model_id):
+        return self._d.get(model_id, {})
+
+    def clear(self):
+        self._d = {}
+
+
+model_metadata = _ModelMetadataRegistry()
+
+
+def set_model_metadata(mapping):
+    """Set the global ``model_id -> metadata`` map, e.g. ``{id: {"trust": t}}``."""
+    model_metadata.set(mapping)
+
+
+def get_model_metadata(model_id):
+    """Metadata dict for a base-model id (empty if none registered)."""
+    return model_metadata.get(model_id)
+
+
+def clear_model_metadata():
+    model_metadata.clear()
+
+
 # ---- Backend configuration ----
 # Initialize the backend based on environment variable or default to numpy
 backend_name = os.environ.get("BACKEND", "numpy")

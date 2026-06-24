@@ -20,6 +20,13 @@ class PyTorchBackend(BackendInterface):
         return torch.mean(x.float(), dim=axis)
 
     @staticmethod
+    def median(x, axis=None):
+        # quantile(0.5) matches numpy's interpolated median (torch.median is the lower median)
+        if axis is None:
+            return torch.quantile(x.float(), 0.5)
+        return torch.quantile(x.float(), 0.5, dim=axis)
+
+    @staticmethod
     def max(x, axis=None):
         if axis is None:
             return torch.max(x)

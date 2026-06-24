@@ -4,6 +4,7 @@ import numpy as np
 from loguru import logger
 
 from okapi.globals import BACKEND as B
+from okapi.globals import get_model_metadata
 from okapi.globals import postprocessing_function as PF
 from okapi.lib_types import Tensor
 
@@ -158,11 +159,15 @@ class ValueNode(Node):
     A Value Node holds a specific value or tensor.
     """
 
-    def __init__(self, children: Optional[Sequence["OperatorNode"]], value, id: Union[int, str]):
+    def __init__(self, children: Optional[Sequence["OperatorNode"]], value, id: Union[int, str],
+                 metadata: Optional[dict] = None):
         super().__init__(children)
         self.value = value
         self.evaluation: None | Tensor = None
         self.id = id
+        # Per-model metadata (e.g. {"trust": ...}). Looked up from the global registry
+        # by id unless passed explicitly (so copy() preserves it without re-lookup).
+        self.metadata: dict = dict(get_model_metadata(id)) if metadata is None else metadata
 
     def calculate(self):
         logger.trace(f"Calculating value for ValueNode {self.id}")
@@ -185,7 +190,7 @@ class ValueNode(Node):
         logger.debug("Child added and evaluation reset")
 
     def copy(self) -> "ValueNode":
-        return ValueNode(None, self.value, self.id)
+        return ValueNode(None, self.value, self.id, self.metadata)
 
     @property
     def code(self) -> str:
@@ -618,6 +623,98 @@ class MinNode(OperatorNode):
     @staticmethod
     def create_node(children):
         return MinNode(children)
+
+
+class TrustGatedBlend(OperatorNode):
+    """Trust-weighted blend: each input is weighted by the precomputed *trust* of
+    the ValueNode supplying it (``metadata["trust"]``, default 1.0), read from the
+    global model-metadata registry at node creation.
+
+    The data-driven answer to the diamond-in-the-rough paradox: it keeps a lone
+    competent specialist (high trust) and starves an agreeing-garbage majority (low
+    trust), exactly where a symmetric robust reducer (see ``SoftMedianNode``) would
+    trim the specialist as the outlier. No evolvable parameters (trust is data).
+    """
+
+    def __init__(self, children: Optional[Sequence[ValueNode]]):
+        super().__init__(children)
+
+    def __str__(self) -> str:
+        return "TrustGatedBlend"
+
+    def copy(self):
+        return TrustGatedBlend(None)
+
+    @property
+    def code(self) -> str:
+        return "TGB"
+
+    @staticmethod
+    def _trust(node) -> float:
+        md = getattr(node, "metadata", None) or {}
+        return float(md.get("trust", 1.0))
+
+    def calculate(self):
+        assert self.parent is not None, "OperatorNode must have a parent to be calculated"
+        inputs = [self.parent] + list(self.children)
+        w = np.array([self._trust(nd) for nd in inputs], dtype=float)
+        total = w.sum()
+        w = w / total if total > 0 else np.full(len(inputs), 1.0 / len(inputs))
+        running = None
+        for wi, tensor in zip(w, self._stream_inputs()):
+            term = tensor * float(wi)
+            running = term if running is None else running + term
+        return PF(running)
+
+    @staticmethod
+    def create_node(children):
+        return TrustGatedBlend(children)
+
+
+class SoftMedianNode(OperatorNode):
+    """Symmetric robust reducer with an evolvable temperature.
+
+    Weights each input by ``softmax(-|x - median| / temperature)`` per cell, so
+    values near the per-cell median dominate and outliers are down-weighted;
+    ``temperature -> 0`` approaches the hard median (max robustness), large
+    ``temperature`` approaches the mean. The principled *symmetric* salvage of the
+    "distrust the disagreer" idea -- but note it will (by its own logic) trim a lone
+    correct specialist, so it is the foil that motivates ``TrustGatedBlend`` on
+    diamond-in-the-rough pools.
+    """
+
+    _EPS = 1e-9
+
+    def __init__(self, children: Optional[Sequence[ValueNode]], temperature: float = 0.3):
+        super().__init__(children)
+        self.temperature = temperature
+
+    def __str__(self) -> str:
+        return f"SoftMedianNode(t={self.temperature:.2f})"
+
+    def copy(self):
+        return SoftMedianNode(None, self.temperature)
+
+    @property
+    def code(self) -> str:
+        return f"SMD[{self.temperature:.1f}]"
+
+    def op(self, x):
+        med = B.median(x, axis=0)
+        dev = B.maximum(x - med, med - x)            # |x - median|
+        logits = -dev / max(self.temperature, self._EPS)
+        logits = logits - B.max(logits, axis=0)      # numerical stability
+        w = B.exp(logits)
+        w = w / B.sum(w, axis=0)
+        return B.sum(w * x, axis=0)
+
+    def mutate_params(self, mutation_strength: float = 0.1) -> bool:
+        self.temperature = float(np.clip(self.temperature + np.random.normal(0, mutation_strength), 0.01, 5.0))
+        return True
+
+    @staticmethod
+    def create_node(children):
+        return SoftMedianNode(children, float(np.clip(np.random.exponential(0.3), 0.02, 3.0)))
 
 
 class ThresholdNode(OperatorNode):

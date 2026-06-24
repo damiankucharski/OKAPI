@@ -204,3 +204,17 @@ def test_log_exp_roundtrip():
         tensor = B.tensor([0.1, 0.5, 0.9, 1.0, 3.0])
         result = B.to_numpy(B.exp(B.log(tensor)))
         np.testing.assert_allclose(result, [0.1, 0.5, 0.9, 1.0, 3.0], rtol=1e-5)
+
+
+@pytest.mark.parametrize(
+    "array, axis, expected",
+    [
+        ([[1.0, 5.0], [2.0, 2.0], [9.0, 2.0]], 0, [2.0, 2.0]),
+        ([1.0, 2.0, 3.0, 4.0], None, 2.5),
+    ],
+)
+def test_median(array, axis, expected):
+    for B in BACKENDS:
+        tensor = B.tensor(array)
+        result = B.to_numpy(B.median(tensor, axis=axis))
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
