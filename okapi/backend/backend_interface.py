@@ -56,6 +56,10 @@ class BackendInterface:
         raise NotImplementedError()
 
     @staticmethod
+    def exp(x):
+        raise NotImplementedError()
+
+    @staticmethod
     def to_float(x):
         raise NotImplementedError()
 

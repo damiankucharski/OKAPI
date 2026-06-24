@@ -309,6 +309,67 @@ class MeanNode(OperatorNode):
         return MeanNode(children)
 
 
+class LogitMeanNode(OperatorNode):
+    """Mean in logit space with a learnable temperature and shift.
+
+    The Bayes-optimal fusion of calibrated, conditionally-independent detectors is
+    additive in *logit* space, not in probability space (where ``MeanNode``
+    operates and loses information). This node maps inputs to logits, averages
+    them, applies a learnable affine recalibration ``temperature * mean_logit +
+    shift`` and maps back:
+
+    - binary single-channel ``[K, *, 1]``: ``sigmoid(temperature * mean(logit(x)) + shift)``;
+    - multiclass ``[K, *, C]``: ``exp(temperature * mean(log x))`` (a temperature-scaled
+      geometric mean / product rule), left for the tree postprocessing to renormalise.
+
+    ``temperature`` interpolates between a single-model logit (small t), a logit
+    *mean* (t=1) and a logit *sum* (t≈K, the independent-evidence optimum);
+    ``shift`` is the recalibration / decision-threshold degree of freedom that
+    probability-space operators lack. Both are evolved via ``mutate_params``.
+    """
+
+    _EPS = 1e-6
+    _CLAMP = 30.0
+
+    def __init__(self, children: Optional[Sequence[ValueNode]], temperature: float = 1.0, shift: float = 0.0):
+        super().__init__(children)
+        self.temperature = temperature
+        self.shift = shift
+
+    def __str__(self) -> str:
+        return f"LogitMeanNode(t={self.temperature:.2f}, s={self.shift:.2f})"
+
+    def copy(self):
+        return LogitMeanNode(None, self.temperature, self.shift)
+
+    @property
+    def code(self) -> str:
+        return f"LMN[{self.temperature:.1f},{self.shift:.1f}]"
+
+    def op(self, x):
+        xc = B.clip(x, self._EPS, 1.0 - self._EPS)
+        if B.shape(x)[-1] == 1:  # binary positive-probability channel -> logit space
+            z = B.log(xc) - B.log(1.0 - xc)
+            m = self.temperature * B.mean(z, axis=0) + self.shift
+            m = B.clip(m, -self._CLAMP, self._CLAMP)
+            return 1.0 / (1.0 + B.exp(-m))
+        # multiclass: temperature-scaled geometric mean (product rule); PF renormalises
+        m = self.temperature * B.mean(B.log(xc), axis=0)
+        m = B.clip(m, -self._CLAMP, self._CLAMP)
+        return B.exp(m)
+
+    def mutate_params(self, mutation_strength: float = 0.1) -> bool:
+        self.temperature = float(np.clip(self.temperature + np.random.normal(0, mutation_strength * 5.0), 0.05, 50.0))
+        self.shift = float(self.shift + np.random.normal(0, mutation_strength * 2.0))
+        return True
+
+    @staticmethod
+    def create_node(children):
+        t = float(np.exp(np.random.normal(0.0, 0.5)))  # lognormal around 1, strictly positive
+        s = float(np.random.normal(0.0, 0.3))
+        return LogitMeanNode(children, t, s)
+
+
 class WeightedMeanNode(OperatorNode):
     """
     Represents a Weighted Mean Node in a computational tree.
