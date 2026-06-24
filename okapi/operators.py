@@ -5,7 +5,15 @@ This module exposes the various operator node types from okapi.node
 with simpler names for easier importing and usage.
 """
 
-from okapi.node import CloseThresholdNode, FarThresholdNode, MaxNode, MeanNode, MinNode, WeightedMeanNode
+from okapi.node import (
+    CloseThresholdNode,
+    FarThresholdNode,
+    LogitMeanNode,
+    MaxNode,
+    MeanNode,
+    MinNode,
+    WeightedMeanNode,
+)
 
 # Operator node types available for use in trees
 MIN = MinNode
@@ -14,3 +22,4 @@ MEAN = MeanNode
 WEIGHTED_MEAN = WeightedMeanNode
 FAR_THRESHOLD = FarThresholdNode
 CLOSE_THRESHOLD = CloseThresholdNode
+LOGIT_MEAN = LogitMeanNode

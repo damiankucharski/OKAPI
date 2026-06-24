@@ -56,6 +56,10 @@ class PyTorchBackend(BackendInterface):
         return torch.log(x)
 
     @staticmethod
+    def exp(x):
+        return torch.exp(x)
+
+    @staticmethod
     def to_float(x):
         return x.float()
 
