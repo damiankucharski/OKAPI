@@ -45,7 +45,7 @@ class PyTorchBackend(BackendInterface):
 
     @staticmethod
     def to_numpy(x):
-        return x.detach().numpy()
+        return x.detach().cpu().numpy()
 
     @staticmethod
     def clip(x, min, max):

@@ -31,7 +31,7 @@ def tournament_selection_indexes(fitnesses: np.ndarray, tournament_size: int = 5
 
     if len(fitnesses) < (2 * tournament_size):
         logger.warning(
-            f"Tournament size ({tournament_size}), is small related to the population size ({len(fitnesses)})."
+            f"Tournament size ({tournament_size}) is large relative to the population size ({len(fitnesses)})."
             "The population should be at least twice as large as tournament for more stable parent selection"
         )
 

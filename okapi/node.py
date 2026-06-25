@@ -644,7 +644,7 @@ class ThresholdNode(OperatorNode):
     """
 
     def __init__(self, children: Optional[Sequence[ValueNode]], threshold: float, close=True):
-        assert threshold >= 0 or threshold <= 1, f"Threshold must be between 0 and 1 (inclusive) but is equal {threshold}"
+        assert 0 <= threshold <= 1, f"Threshold must be between 0 and 1 (inclusive) but is equal {threshold}"
         super().__init__(children)
         self.close = close
         self.strclose = "Close" if self.close else "Far"
