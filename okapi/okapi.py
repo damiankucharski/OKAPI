@@ -68,6 +68,8 @@ class Okapi:
         mutation_strength: float = 0.1,
         max_depth: int | None = None,
         max_nodes: int | None = None,
+        cv=None,
+        cv_penalty: float = 0.0,
     ):
         """
         Initialize the Okapi evolutionary algorithm.
@@ -95,6 +97,17 @@ class Okapi:
             max_nodes: Optional hard cap on total node count. ``None`` (default) imposes no limit.
             Both caps are enforced at generation time (mutation + crossover), not merely at
             selection, so they also bound evaluation cost - see ``_within_caps``.
+            cv: Cross-validation for the fitness signal, to make selection less prone to
+            exploiting a noisy validation estimate. ``None`` / ``1`` (default) keeps the
+            single full-split fitness (historical behaviour, exactly). An ``int`` k uses
+            ``KFold(k, shuffle=True, random_state=seed)``; any scikit-learn splitter object
+            (e.g. ``StratifiedKFold``) is accepted as-is. Each objective then becomes the mean
+            of its per-fold scores. (OKAPI operators are pointwise across samples, so this is
+            an evaluation-averaging of the fitness over disjoint row folds, not a per-fold
+            re-fit: it stabilises the estimate and exposes its variance, see ``fitness_stds``.)
+            cv_penalty: When ``cv`` is set, subtract ``cv_penalty * std`` of the per-fold
+            scores from each objective (added for minimise objectives), penalising trees whose
+            fitness is unstable across folds. ``0.0`` (default) = pure fold mean.
         """
         if backend is not None:
             Backend.set_backend(backend)
@@ -111,6 +124,7 @@ class Okapi:
         self.seed = seed
         self.max_depth = max_depth
         self.max_nodes = max_nodes
+        self.cv_penalty = cv_penalty
 
         self.objective_functions = objective_functions
         self.objectives = objectives
@@ -123,6 +137,10 @@ class Okapi:
         self.train_tensors, self.gt_tensor = self._build_train_tensors(preds_source, gt_path)
         self.ids, self.models = list(self.train_tensors.keys()), list(self.train_tensors.values())
         self._validate_input()
+
+        # Cross-validated fitness folds (None => single full-split fitness, as before).
+        self._cv_folds = self._build_cv_folds(cv)
+        self.fitness_stds: None | npt.NDArray[np.float64] = None
 
         # state
         self.should_stop = False
@@ -155,12 +173,39 @@ class Okapi:
         logger.debug(f"Population initialized with {len(population)} individuals")
         return population
 
+    def _build_cv_folds(self, cv) -> None | list:
+        """Precompute the (disjoint) row index folds for cross-validated fitness, once.
+
+        ``None`` / ``1`` -> ``None`` (single full-split fitness, unchanged). An ``int`` k ->
+        ``KFold(k, shuffle=True, random_state=seed)``; any scikit-learn splitter object is
+        used as given (e.g. ``StratifiedKFold``, which uses the labels). Returns the list of
+        per-fold *test* index arrays partitioning the rows.
+        """
+        if cv is None or (isinstance(cv, int) and cv <= 1):
+            return None
+        y = np.asarray(B.to_numpy(self.gt_tensor)).ravel()
+        if isinstance(cv, int):
+            from sklearn.model_selection import KFold
+
+            cv = KFold(n_splits=cv, shuffle=True, random_state=self.seed)
+        x_dummy = np.zeros((len(y), 1))
+        return [np.asarray(test_idx) for _, test_idx in cv.split(x_dummy, y)]
+
     def _calculate_fitnesses(self, trees: None | List[Tree] = None) -> npt.NDArray[np.float64]:
         """
         Calculate fitness values for the given trees.
 
         Uses memory-efficient prediction extraction via tree.predict() which
         clears intermediate evaluation caches after each tree is evaluated.
+
+        With cross-validated fitness enabled (``cv`` set) each objective is the mean of its
+        per-fold scores (minus ``cv_penalty * std``); the prediction is computed once on the
+        full split and sliced per fold (valid because every operator is pointwise across
+        samples), so the cost over the single-split path is only the extra cheap objective
+        evaluations. Per-fold standard deviations for the trees passed to *this* call are
+        stored on ``self.fitness_stds`` (so after a full ``run_iteration`` they correspond to
+        the last internal evaluation, not necessarily the trimmed population; call this on a
+        tree list to get a view aligned to it).
 
         Args:
             trees: List of trees to evaluate. If None, uses the current population.
@@ -172,16 +217,28 @@ class Okapi:
             trees = self.population
         logger.debug(f"Calculating fitness for {len(trees)} trees")
 
-        fitnesses = np.zeros(shape=(len(trees), len(self.objective_functions)))
+        n_obj = len(self.objective_functions)
+        fitnesses = np.zeros(shape=(len(trees), n_obj))
+        stds = np.zeros(shape=(len(trees), n_obj)) if self._cv_folds is not None else None
 
         for tree_idx, tree in enumerate(trees):
             # Get prediction with automatic cache clearing for memory efficiency
             prediction = tree.predict(clear_cache=True)
 
-            # Evaluate all objective functions on this prediction
             for obj_idx, objective_function in enumerate(self.objective_functions):
-                fitnesses[tree_idx, obj_idx] = objective_function(prediction, self.gt_tensor)
+                if self._cv_folds is None:
+                    fitnesses[tree_idx, obj_idx] = objective_function(prediction, self.gt_tensor)
+                else:
+                    fold_scores = np.array(
+                        [objective_function(prediction[idx], self.gt_tensor[idx]) for idx in self._cv_folds]
+                    )
+                    mean_score, std_score = float(fold_scores.mean()), float(fold_scores.std())
+                    # Penalise across-fold instability in the objective's *worsening* direction.
+                    direction = 1.0 if self.objectives[obj_idx] is maximize else -1.0
+                    fitnesses[tree_idx, obj_idx] = mean_score - direction * self.cv_penalty * std_score
+                    stds[tree_idx, obj_idx] = std_score
 
+        self.fitness_stds = stds
         return fitnesses
 
     def run_iteration(self):
