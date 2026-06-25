@@ -12,6 +12,7 @@ import time
 import numpy as np
 import pytest
 
+from okapi.crossover import _legal_crossover_pair, crossover
 from okapi.mutation import append_new_node_mutation, get_allowed_mutations
 from okapi.node import MeanNode, ValueNode
 from okapi.okapi import Okapi
@@ -184,6 +185,98 @@ def test_tight_cap_terminates(tmp_path):
     assert time.time() - start < 180
     assert ok.population, "population must remain non-empty under a tight cap"
     assert all(t.depth <= 3 and t.nodes_count <= 4 for t in ok.population)
+
+
+# --------------------------------------------------------------------------- #
+# C1b: deterministic legal-target selection (no retry, no revert)
+# --------------------------------------------------------------------------- #
+
+
+def test_legal_append_targets_depth_budget():
+    tree = _fusion_tree()  # depth 3: root(V,1) -> op(2) -> [V,V](3); 4 nodes
+    depth_of = tree._depth_map()
+    root = tree.root
+    op = tree.nodes["op_nodes"][0]
+    leaves = [v for v in tree.nodes["value_nodes"] if depth_of[v] == 3]
+
+    # max_depth=3: only shallow nodes can host an append without deepening past 3.
+    t3 = tree.legal_append_targets(max_depth=3)
+    assert root in t3 and op in t3
+    assert all(leaf not in t3 for leaf in leaves)
+    # max_depth=5: the depth-3 leaves become legal (value target adds two levels -> 5).
+    t5 = tree.legal_append_targets(max_depth=5)
+    assert all(leaf in t5 for leaf in leaves)
+    # uncapped: every node is a legal target.
+    assert len(tree.legal_append_targets()) == tree.nodes_count
+
+
+def test_legal_append_targets_node_budget():
+    tree = _fusion_tree()  # 4 nodes
+    op = tree.nodes["op_nodes"][0]
+    # Room for exactly one node: only an op target (adds 1) qualifies, not a value (adds 2).
+    t5 = tree.legal_append_targets(max_nodes=5)
+    assert op in t5 and tree.root not in t5
+    # No room at all.
+    assert tree.legal_append_targets(max_nodes=4) == []
+
+
+def test_capped_append_grows_width_not_depth():
+    # The capability the deterministic selector unlocks over the bugged shallow-only
+    # search: at max_depth=3 append still fires, building WIDER depth-3 trees, never deeper.
+    np.random.seed(0)
+    models = [np.full((2, 1), 0.5) for _ in range(5)]
+    ids = [f"m{i}" for i in range(5)]
+    tree = _fusion_tree()
+    for _ in range(6):
+        tree = append_new_node_mutation(tree, models, ids, allowed_ops=(MeanNode,), max_depth=3)
+    assert tree.depth == 3          # never deepened past the cap
+    assert tree.nodes_count > 4     # but grew wider than the minimal single fusion
+
+
+def test_capped_append_no_legal_target_is_noop():
+    # A 4-node fusion at max_nodes=4 has no legal attachment point -> unchanged copy.
+    np.random.seed(0)
+    models = [np.full((2, 1), 0.5) for _ in range(3)]
+    ids = ["m0", "m1", "m2"]
+    tree = _fusion_tree()
+    out = append_new_node_mutation(tree, models, ids, allowed_ops=(MeanNode,), max_nodes=4)
+    assert out.nodes_count == tree.nodes_count
+
+
+def test_crossover_offspring_respect_caps():
+    np.random.seed(1)
+    t1 = _fusion_tree(("a", "b", "c"))  # both within caps (depth 3)
+    t2 = _fusion_tree(("d", "e", "f"))
+    for _ in range(100):
+        o1, o2 = crossover(t1, t2, max_depth=3, max_nodes=8)
+        assert o1.depth <= 3 and o2.depth <= 3
+        assert o1.nodes_count <= 8 and o2.nodes_count <= 8
+
+
+def test_legal_crossover_value_pair_always_exists():
+    # value root x root swaps whole within-caps trees -> always legal, even at the
+    # tightest binding cap, so the engine path never needs a retry or parent-copy fallback.
+    t1 = _fusion_tree(("a", "b", "c"))
+    t2 = _fusion_tree(("d", "e", "f"))
+    pair = _legal_crossover_pair(
+        t1, t2, "value_nodes",
+        max_depth=max(t1.depth, t2.depth),
+        max_nodes=max(t1.nodes_count, t2.nodes_count),
+    )
+    assert pair is not None
+
+
+def test_legal_crossover_pair_excludes_deep_into_shallow_swaps():
+    # Grafting t2's whole height-3 tree onto a depth-3 leaf of t1 would make depth 5;
+    # the filter must never offer that pair at max_depth=3 (deterministic exclusion).
+    t1 = _fusion_tree(("a", "b", "c"))
+    t2 = _fusion_tree(("d", "e", "f"))
+    depth1 = t1._depth_map()
+    deep_leaf = next(v for v in t1.nodes["value_nodes"] if depth1[v] == 3)
+    root2 = t2.root
+    for _ in range(100):
+        n1, n2 = _legal_crossover_pair(t1, t2, "value_nodes", max_depth=3, max_nodes=None)
+        assert not (n1 is deep_leaf and n2 is root2)
 
 
 if __name__ == "__main__":  # pragma: no cover
