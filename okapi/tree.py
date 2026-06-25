@@ -122,6 +122,41 @@ class Tree:
 
         return _node_depth(self.root)
 
+    def _depth_map(self) -> dict:
+        """Map every node to its depth from the root (root = 1), in one traversal."""
+        depth = {self.root: 1}
+        stack = [self.root]
+        while stack:
+            node = stack.pop()
+            d = depth[node]
+            for child in node.children:
+                depth[child] = d + 1
+                stack.append(child)
+        return depth
+
+    def legal_append_targets(self, max_depth: int | None = None, max_nodes: int | None = None) -> list:
+        """Nodes to which ``append_new_node_mutation`` can attach within the bloat caps.
+
+        Appending to a ValueNode inserts an operator + value child (depth +2, nodes +2);
+        appending to an OperatorNode inserts a value child (depth +1, nodes +1). A node is
+        a legal target iff the resulting tree still respects both caps. With both caps
+        ``None`` every node qualifies (the uncapped behaviour). This is the basis of the
+        deterministic, retry-free cap enforcement: the search only ever *selects* a legal
+        attachment point instead of generating an illegal one and rejecting it. A depth cap
+        therefore never forbids appending outright -- it just restricts growth to shallow
+        nodes, which is exactly how compact *wide* trees form at e.g. ``max_depth=3``.
+        """
+        n = self.nodes_count
+        depth_of = self._depth_map()
+        targets: list = []
+        for node in self.nodes["value_nodes"]:
+            if (max_nodes is None or n + 2 <= max_nodes) and (max_depth is None or depth_of[node] + 2 <= max_depth):
+                targets.append(node)
+        for node in self.nodes["op_nodes"]:
+            if (max_nodes is None or n + 1 <= max_nodes) and (max_depth is None or depth_of[node] + 1 <= max_depth):
+                targets.append(node)
+        return targets
+
     def _clean_evals(self):
         """
         Reset the cached evaluation results for all value nodes in the tree.
