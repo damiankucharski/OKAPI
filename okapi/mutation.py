@@ -160,7 +160,7 @@ def new_tree_from_branch_mutation(tree: Tree, **kwargs):
     return new_tree
 
 
-def get_allowed_mutations(tree):
+def get_allowed_mutations(tree, max_nodes: int | None = None):
     """
     Determines which mutation operations are valid for a given tree.
 
@@ -169,14 +169,21 @@ def get_allowed_mutations(tree):
 
     Args:
         tree: The tree to analyze
+        max_nodes: Optional hard cap on node count. When set and the tree is already at
+            (or above) the cap, ``append_new_node_mutation`` is excluded so the search does
+            not waste effort growing trees that would only be rejected. Note the depth cap
+            is intentionally *not* applied here: append can also grow a tree *wider* without
+            increasing depth (a sibling at a shallow operator), which is exactly how compact
+            wide-shallow trees form at ``max_depth=3``. Depth is therefore enforced after the
+            mutation (see ``Okapi._within_caps``), rejecting only appends that truly deepen.
 
     Returns:
         A list of mutation functions that are valid for the given tree
     """
     logger.debug(f"Determining allowed mutations for tree with {tree.nodes_count} nodes")
-    allowed_mutations: list[Callable] = [
-        append_new_node_mutation,
-    ]
+    allowed_mutations: list[Callable] = []
+    if max_nodes is None or tree.nodes_count < max_nodes:
+        allowed_mutations.append(append_new_node_mutation)
 
     if tree.nodes_count >= 3:
         logger.trace("Tree is large enough for lose_branch_mutation")
