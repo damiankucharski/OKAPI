@@ -349,7 +349,7 @@ class Tree:
 
         for nodes_type in nodes_types:
             assert nodes_type is not None, "Nodes type cannot be None"
-            order = np.arange(len(self.nodes[nodes_type]))
+            order = np.random.permutation(len(self.nodes[nodes_type]))
             for i in order:
                 node = self.nodes[nodes_type][i]
                 if (allow_leaves or node.children != []) and (allow_root or node != self.root):
@@ -439,7 +439,8 @@ class Tree:
             [current_tensors is not None, preds_directory is not None]
         ), "Either preds directory or current tensors needs to be set, none was set"
 
-        current_tensors = {}
+        if current_tensors is None:
+            current_tensors = {}
         copy_tree = self.copy()
         copy_tree._clean_values_and_evals()
         current_tensors = copy_tree._load_tensors_to_tree(preds_directory, current_tensors)
