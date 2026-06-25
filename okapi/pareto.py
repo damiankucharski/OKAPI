@@ -127,7 +127,7 @@ def plot_pareto_frontier(array: np.ndarray, objectives: Sequence[Callable[[float
         # For two objectives, we typically want to sort by one coordinate
         # The sort direction depends on whether we're maximizing or minimizing
         sort_col = 0
-        sort_ascending = isinstance(objectives[0], type(minimize))
+        sort_ascending = objectives[0] is minimize
 
         # Sort the Pareto points
         sorted_indices = np.argsort(pareto_points[:, sort_col])
