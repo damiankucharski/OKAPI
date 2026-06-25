@@ -634,6 +634,15 @@ class TrustGatedBlend(OperatorNode):
     competent specialist (high trust) and starves an agreeing-garbage majority (low
     trust), exactly where a symmetric robust reducer (see ``SoftMedianNode``) would
     trim the specialist as the outlier. No evolvable parameters (trust is data).
+
+    **Leaf-only trust guard (L2.3c).** Per-model trust describes a node's ``.value``
+    (its base model), so it is only valid where the streamed tensor *is* that base
+    model. ``_stream_inputs`` feeds the parent slot from ``parent.value`` (always the
+    base model -> trust valid), while a child feeds ``child.calculate()``: a LEAF child
+    is its base model (.value -> trust valid), but an INTERNAL child is the fused
+    ``.evaluation`` of a whole subtree, for which the single base-model trust is stale.
+    Internal children therefore get a **neutral** weight (1.0); applying their stale
+    base-model trust would be the ``.value`` vs ``.evaluation`` mismatch.
     """
 
     def __init__(self, children: Optional[Sequence[ValueNode]]):
@@ -650,18 +659,22 @@ class TrustGatedBlend(OperatorNode):
         return "TGB"
 
     @staticmethod
-    def _trust(node) -> float:
+    def _leaf_trust(node, *, is_parent: bool) -> float:
+        # Internal (fused) child input -> neutral; parent and leaf children -> base-model trust.
+        if (not is_parent) and getattr(node, "children", None):
+            return 1.0
         md = getattr(node, "metadata", None) or {}
         return float(md.get("trust", 1.0))
 
     def calculate(self):
         assert self.parent is not None, "OperatorNode must have a parent to be calculated"
-        inputs = [self.parent] + list(self.children)
-        w = np.array([self._trust(nd) for nd in inputs], dtype=float)
+        weights = [self._leaf_trust(self.parent, is_parent=True)]
+        weights += [self._leaf_trust(child, is_parent=False) for child in self.children]
+        w = np.array(weights, dtype=float)
         total = w.sum()
-        w = w / total if total > 0 else np.full(len(inputs), 1.0 / len(inputs))
+        w = w / total if total > 0 else np.full(len(w), 1.0 / len(w))
         running = None
-        for wi, tensor in zip(w, self._stream_inputs()):
+        for wi, tensor in zip(w, self._stream_inputs(), strict=True):
             term = tensor * float(wi)
             running = term if running is None else running + term
         return PF(running)

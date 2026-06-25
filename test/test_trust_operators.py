@@ -76,6 +76,28 @@ def test_tgb_reads_trust_from_global_registry():
     np.testing.assert_allclose(A.calculate(), 0.9, atol=1e-9)  # low-trust input starved
 
 
+def test_tgb_leaf_only_guard_neutralizes_internal_child():
+    # Leaf-only trust guard (L2.3c): per-model trust is valid only where the streamed
+    # tensor IS the base model. Parent A and leaf C both have trust 0 -> contribute
+    # nothing. E is an INTERNAL child (it owns an operator subtree) carrying a *stale*
+    # base-model trust of 0; the guard must give it a NEUTRAL weight so its fused value
+    # (0.9) wins. Pre-fix (trust applied to all) -> total weight 0 -> uniform mean 0.3.
+    A = _vn([[0.0]], "A", 0.0)
+    C = _vn([[0.0]], "C", 0.0)
+    E = _vn([[0.9]], "E", 0.0)  # stale base-model trust sitting on an internal node
+    E.add_child(MeanNode([_vn([[0.9]], "F", 0.0)]))  # E.calculate() = mean(0.9, 0.9) = 0.9 (fused)
+    A.add_child(TrustGatedBlend([C, E]))
+    np.testing.assert_allclose(A.calculate(), 0.9, atol=1e-9)
+
+
+def test_tgb_parent_slot_keeps_its_trust():
+    # The parent slot streams parent.value (always the base model), so its trust is
+    # valid and must NOT be neutralized even though the parent node has a child (the TGB).
+    A = _vn([[0.8]], "A", 1.0)
+    A.add_child(TrustGatedBlend([_vn([[0.0]], "C", 0.0)]))
+    np.testing.assert_allclose(A.calculate(), 0.8, atol=1e-9)
+
+
 def test_tgb_plumbing():
     assert TrustGatedBlend(None).code == "TGB"
     assert isinstance(TrustGatedBlend.create_node([]), TrustGatedBlend)
