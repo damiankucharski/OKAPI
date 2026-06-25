@@ -66,6 +66,8 @@ class Okapi:
         seed: int = 0,
         postprocessing_function=None,
         mutation_strength: float = 0.1,
+        max_depth: int | None = None,
+        max_nodes: int | None = None,
     ):
         """
         Initialize the Okapi evolutionary algorithm.
@@ -87,6 +89,12 @@ class Okapi:
             Most of the operations may break some data characteristics, for example vector summing to one. This can be used to fix that.
             mutation_strength: Controls magnitude of parameter mutations (default 0.1).
             Higher values cause larger parameter changes during evolution.
+            max_depth: Optional hard cap on tree depth (levels; root = 1, a value->op->value
+            fusion = 3). ``None`` (default) imposes no limit and reproduces the historical
+            behaviour exactly. When set, variation never produces an individual deeper than this.
+            max_nodes: Optional hard cap on total node count. ``None`` (default) imposes no limit.
+            Both caps are enforced at generation time (mutation + crossover), not merely at
+            selection, so they also bound evaluation cost - see ``_within_caps``.
         """
         if backend is not None:
             Backend.set_backend(backend)
@@ -101,6 +109,8 @@ class Okapi:
         self.minimize_node_count = minimize_node_count
         self.mutation_strength = mutation_strength
         self.seed = seed
+        self.max_depth = max_depth
+        self.max_nodes = max_nodes
 
         self.objective_functions = objective_functions
         self.objectives = objectives
@@ -219,13 +229,44 @@ class Okapi:
 
         self.additional_population = []
 
+    def _within_caps(self, tree: Tree) -> bool:
+        """Return whether ``tree`` respects the configured ``max_depth`` / ``max_nodes`` caps.
+
+        With both caps left at their ``None`` default this is always ``True``, so the
+        historical (uncapped) behaviour is reproduced exactly. When a cap is set, this is the
+        single source of truth that *guarantees* no over-budget individual ever enters the
+        population - the mutation/crossover gates above it are only optimisations.
+        """
+        if self.max_nodes is not None and tree.nodes_count > self.max_nodes:
+            return False
+        if self.max_depth is not None and tree.depth > self.max_depth:
+            return False
+        return True
+
     def _perform_crossovers(self, fitnesses: npt.NDArray[np.float64]):
+        # How many times to re-attempt a crossover whose offspring both violate the bloat
+        # caps before falling back to parent copies. Keeps the while-loop terminating even
+        # under a punishing cap (parents are themselves within caps, so the fallback is safe).
+        cap_retries = 8
         crossover_count = 0
-        while len(self.additional_population) < (self.population_multiplier * self.population_size):
+        target = self.population_multiplier * self.population_size
+        while len(self.additional_population) < target:
             idx1, idx2 = tournament_selection_indexes(fitnesses, self.tournament_size, self.optimal_point)
             parent_1, parent_2 = self.population[idx1], self.population[idx2]
-            new_tree_1, new_tree_2 = crossover(parent_1, parent_2)
-            self.additional_population += [new_tree_1, new_tree_2]
+
+            accepted: List[Tree] = []
+            for _ in range(cap_retries):
+                new_tree_1, new_tree_2 = crossover(parent_1, parent_2)
+                accepted = [child for child in (new_tree_1, new_tree_2) if self._within_caps(child)]
+                if accepted:
+                    break
+            if not accepted:
+                # Caps too tight for these parents to recombine within budget: fall back to
+                # within-caps parent copies so the loop always makes progress.
+                logger.trace("Crossover could not satisfy bloat caps; falling back to parent copies")
+                accepted = [parent_1.copy(), parent_2.copy()]
+
+            self.additional_population += accepted
             crossover_count += 1
         return crossover_count
 
@@ -238,16 +279,24 @@ class Okapi:
 
             # Structural mutation
             if np.random.rand() < tree.mutation_chance:
-                allowed_mutations = np.array(get_allowed_mutations(tree))
-                chosen_mutation = np.random.choice(allowed_mutations)
-                logger.trace(f"Applying structural mutation: {chosen_mutation.__name__}")
-                current_tree = chosen_mutation(
-                    tree,
-                    models=self.models,
-                    ids=self.ids,
-                    allowed_ops=self.allowed_ops,
-                )
-                mutation_count += 1
+                allowed_mutations = get_allowed_mutations(tree, max_nodes=self.max_nodes)
+                if allowed_mutations:
+                    chosen_mutation = np.random.choice(np.array(allowed_mutations))
+                    logger.trace(f"Applying structural mutation: {chosen_mutation.__name__}")
+                    mutated = chosen_mutation(
+                        tree,
+                        models=self.models,
+                        ids=self.ids,
+                        allowed_ops=self.allowed_ops,
+                    )
+                    # Enforce the depth cap (and re-check nodes) after the fact: this rejects
+                    # only the appends that actually deepen the tree past the cap, while still
+                    # allowing width growth at the cap. Reverting keeps the unmutated parent.
+                    if self._within_caps(mutated):
+                        current_tree = mutated
+                        mutation_count += 1
+                    else:
+                        logger.trace("Structural mutation exceeded bloat caps; reverting")
 
             # Parameter mutation (applied to structurally mutated tree if any, else original)
             if np.random.rand() < tree.mutation_chance:

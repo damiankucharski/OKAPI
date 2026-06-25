@@ -103,6 +103,25 @@ class Tree:
         """
         return len(self.nodes["value_nodes"]) + len(self.nodes["op_nodes"])
 
+    @property
+    def depth(self) -> int:
+        """
+        Maximum depth of the tree, measured in node levels.
+
+        The root ValueNode is level 1; a ``value -> operator -> value`` fusion has
+        depth 3. This matches the convention used by the saved-tree depth scanners
+        (``experiments/scan_tree_depths.py`` / ``experiments/depth_probe.py``) so that
+        in-evolution caps and post-hoc audits speak the same units.
+
+        Returns:
+            The number of levels from the root to the deepest leaf.
+        """
+
+        def _node_depth(node) -> int:
+            return 1 if not node.children else 1 + max(_node_depth(child) for child in node.children)
+
+        return _node_depth(self.root)
+
     def _clean_evals(self):
         """
         Reset the cached evaluation results for all value nodes in the tree.
