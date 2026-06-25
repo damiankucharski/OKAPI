@@ -12,6 +12,7 @@ from okapi.node import (
     MaxNode,
     MeanNode,
     MinNode,
+    WeightedLogitMeanNode,
     WeightedMeanNode,
 )
 
@@ -23,3 +24,4 @@ WEIGHTED_MEAN = WeightedMeanNode
 FAR_THRESHOLD = FarThresholdNode
 CLOSE_THRESHOLD = CloseThresholdNode
 LOGIT_MEAN = LogitMeanNode
+WEIGHTED_LOGIT_MEAN = WeightedLogitMeanNode

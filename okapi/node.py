@@ -540,6 +540,111 @@ class WeightedMeanNode(OperatorNode):
         return True
 
 
+class WeightedLogitMeanNode(OperatorNode):
+    """Per-input weighted sum in *logit* space (the calibrated-stacking link).
+
+    ``LogitMeanNode`` applies a single global ``temperature`` to the *mean* logit;
+    ``WeightedMeanNode`` applies per-input weights but in *probability* space. This
+    node is their natural join -- per-input weights applied in logit space:
+
+    - binary single-channel ``[K, *, 1]``: ``sigmoid(Sum_i w_i * logit(x_i))``;
+    - multiclass ``[K, *, C]``: ``exp(Sum_i w_i * log(x_i))`` (weighted product rule;
+      the tree postprocessing renormalises).
+
+    The Bayes-optimal fusion of calibrated detectors with per-model noise scales
+    ``k_i`` is ``sigmoid(Sum (1/k_i) * logit p_i)`` -- i.e. this node *with* ``w_i =
+    1/k_i`` -- which probability-space averaging and a single global temperature
+    cannot express. Weights are **free and non-negative**, deliberately *not*
+    normalised to 1: their scale is the effective temperature, so ``Sum w_i ~ K``
+    recovers the independent-evidence logit *sum* and equal small weights recover
+    ``LogitMeanNode`` (it is a strict superset). The parent input occupies slot 0
+    and each child follows, mirroring ``WeightedMeanNode``; weights evolve via
+    ``mutate_params`` (additive Gaussian, floored at 0). Because there is no
+    sum-to-one constraint, the structural weight bookkeeping is simpler than
+    ``WeightedMeanNode`` -- add/remove just append/pop a free weight, no rescaling.
+    """
+
+    _EPS = 1e-6
+    _CLAMP = 30.0
+    _W_MAX = 50.0
+
+    def __init__(self, children: Optional[Sequence[ValueNode]], weights: List[float]):
+        self._weights = list(weights)
+        super().__init__(children)
+
+    def __str__(self) -> str:
+        return f"WeightedLogitMeanNode with weights: {np.round(self._weights, 2)}"
+
+    def copy(self):
+        # Mirror WeightedMeanNode: empty children + full weights; copy_subtree
+        # re-attaches the children directly, restoring length consistency.
+        return WeightedLogitMeanNode([], [w for w in self._weights])
+
+    @property
+    def code(self) -> str:
+        weights_str = ",".join(f"{w:.1f}" for w in self._weights)
+        return f"WLMN[{weights_str}]"
+
+    @property
+    def weights(self):
+        return B.tensor(self._weights)
+
+    def op(self, x):
+        xc = B.clip(x, self._EPS, 1.0 - self._EPS)
+        weight_shape = (-1, *([1] * (len(x.shape) - 1)))
+        w = B.reshape(self.weights, weight_shape)
+        w = B.to_device(w, x)  # Ensure weights are on same device as input
+        if B.shape(x)[-1] == 1:  # binary positive-probability channel -> logit space
+            z = B.log(xc) - B.log(1.0 - xc)
+            m = B.sum(w * z, axis=0)
+            m = B.clip(m, -self._CLAMP, self._CLAMP)
+            return 1.0 / (1.0 + B.exp(-m))
+        # multiclass: weighted product rule (generalises the geometric mean); PF renormalises
+        m = B.sum(w * B.log(xc), axis=0)
+        m = B.clip(m, -self._CLAMP, self._CLAMP)
+        return B.exp(m)
+
+    def add_child(self, child_node: Node):
+        logger.debug(f"Adding child to WeightedLogitMeanNode with {len(self._weights)} weights")
+        assert isinstance(child_node, ValueNode), "Child node of WLMN must be a ValueNode"
+        # Free (unnormalised) weight: a new input enters near the logit-sum scale.
+        self._weights.append(float(np.exp(np.random.normal(0.0, 0.5))))
+        super().add_child(child_node)
+        self._weight_length_assertion()
+
+    def remove_child(self, child_node: Node):
+        logger.debug(f"Removing child from WeightedLogitMeanNode with {len(self._weights)} weights")
+        assert isinstance(child_node, ValueNode), "Child node of WLMN must be a ValueNode"
+        child_ix = self.children.index(child_node)
+        self._weights.pop(child_ix + 1)  # +1: the parent input occupies slot 0
+        super().remove_child(child_node)
+        self._weight_length_assertion()
+        return child_node
+
+    def replace_child(self, child, replacement_node):
+        super().replace_child(child, replacement_node)
+        self._weight_length_assertion()
+
+    def _weight_length_assertion(self):
+        expected_length = len(self.children) + 1
+        actual_length = len(self._weights)
+        if actual_length != expected_length:
+            logger.error(f"WLMN weight length ({actual_length}) does not match expected {expected_length}")
+            assert actual_length == expected_length, "Length of weight array is different than number of adjacent nodes"
+
+    def mutate_params(self, mutation_strength: float = 0.1) -> bool:
+        noise = np.random.normal(0, mutation_strength * 3.0, len(self._weights))
+        new_weights = np.clip(np.array(self._weights) + noise, 0.0, self._W_MAX)
+        self._weights = new_weights.tolist()
+        return True
+
+    @staticmethod
+    def create_node(children: Sequence[ValueNode]):
+        n = len(children) + 1  # parent slot + one weight per child
+        weights = np.exp(np.random.normal(0.0, 0.5, size=n)).tolist()  # lognormal ~1, strictly positive
+        return WeightedLogitMeanNode(children, weights)
+
+
 class MaxNode(OperatorNode):
     """
     Represents a Max Node in a computational tree.
