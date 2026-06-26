@@ -13,7 +13,7 @@ from okapi.callback import Callback
 from okapi.crossover import crossover, tournament_selection_indexes
 from okapi.fitness import average_precision_fitness
 from okapi.globals import BACKEND as B
-from okapi.globals import DEVICE, set_postprocessing_function
+from okapi.globals import DEVICE, clear_eval_context, set_eval_context, set_postprocessing_function
 from okapi.lib_types import Tensor
 from okapi.mutation import get_allowed_mutations, mutate_parameters
 from okapi.node import OperatorNode
@@ -221,22 +221,29 @@ class Okapi:
         fitnesses = np.zeros(shape=(len(trees), n_obj))
         stds = np.zeros(shape=(len(trees), n_obj)) if self._cv_folds is not None else None
 
-        for tree_idx, tree in enumerate(trees):
-            # Get prediction with automatic cache clearing for memory efficiency
-            prediction = tree.predict(clear_cache=True)
+        # Supervised operators (e.g. IdealPointTrustNode) read the fit ground truth from the
+        # global eval-context during their evaluation; expose it only for this fitness pass and
+        # clear it afterwards, so prediction sees no y and falls back to its fit-cached weights.
+        set_eval_context(self.gt_tensor)
+        try:
+            for tree_idx, tree in enumerate(trees):
+                # Get prediction with automatic cache clearing for memory efficiency
+                prediction = tree.predict(clear_cache=True)
 
-            for obj_idx, objective_function in enumerate(self.objective_functions):
-                if self._cv_folds is None:
-                    fitnesses[tree_idx, obj_idx] = objective_function(prediction, self.gt_tensor)
-                else:
-                    fold_scores = np.array(
-                        [objective_function(prediction[idx], self.gt_tensor[idx]) for idx in self._cv_folds]
-                    )
-                    mean_score, std_score = float(fold_scores.mean()), float(fold_scores.std())
-                    # Penalise across-fold instability in the objective's *worsening* direction.
-                    direction = 1.0 if self.objectives[obj_idx] is maximize else -1.0
-                    fitnesses[tree_idx, obj_idx] = mean_score - direction * self.cv_penalty * std_score
-                    stds[tree_idx, obj_idx] = std_score
+                for obj_idx, objective_function in enumerate(self.objective_functions):
+                    if self._cv_folds is None:
+                        fitnesses[tree_idx, obj_idx] = objective_function(prediction, self.gt_tensor)
+                    else:
+                        fold_scores = np.array(
+                            [objective_function(prediction[idx], self.gt_tensor[idx]) for idx in self._cv_folds]
+                        )
+                        mean_score, std_score = float(fold_scores.mean()), float(fold_scores.std())
+                        # Penalise across-fold instability in the objective's *worsening* direction.
+                        direction = 1.0 if self.objectives[obj_idx] is maximize else -1.0
+                        fitnesses[tree_idx, obj_idx] = mean_score - direction * self.cv_penalty * std_score
+                        stds[tree_idx, obj_idx] = std_score
+        finally:
+            clear_eval_context()
 
         self.fitness_stds = stds
         return fitnesses

@@ -88,6 +88,45 @@ def clear_model_metadata():
     model_metadata.clear()
 
 
+# ---- Per-fit-evaluation context (ground truth) read by supervised operators ----
+class _EvalContext:
+    """Holds the fit-split ground truth ``y`` during fitness evaluation, so a
+    *supervised* operator (e.g. ``IdealPointTrustNode``) can score each input's
+    evaluation against the ideal point. The engine sets it around a fitness pass and
+    clears it afterwards, so it is present **only** during fit and absent at prediction
+    time — where supervised operators must fall back to weights cached during fit.
+    """
+
+    def __init__(self):
+        self._y = None
+
+    def set(self, y):
+        self._y = y
+
+    def get(self):
+        return self._y
+
+    def clear(self):
+        self._y = None
+
+
+eval_context = _EvalContext()
+
+
+def set_eval_context(y):
+    """Make the fit ground-truth ``y`` available to supervised operators during a fitness pass."""
+    eval_context.set(y)
+
+
+def get_eval_context():
+    """Fit ground-truth ``y`` while a fitness pass is active, else ``None`` (prediction time)."""
+    return eval_context.get()
+
+
+def clear_eval_context():
+    eval_context.clear()
+
+
 # ---- Backend configuration ----
 # Initialize the backend based on environment variable or default to numpy
 backend_name = os.environ.get("BACKEND", "numpy")

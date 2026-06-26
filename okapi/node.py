@@ -4,7 +4,7 @@ import numpy as np
 from loguru import logger
 
 from okapi.globals import BACKEND as B
-from okapi.globals import get_model_metadata
+from okapi.globals import get_eval_context, get_model_metadata
 from okapi.globals import postprocessing_function as PF
 from okapi.lib_types import Tensor
 
@@ -787,6 +787,100 @@ class TrustGatedBlend(OperatorNode):
     @staticmethod
     def create_node(children):
         return TrustGatedBlend(children)
+
+
+class IdealPointTrustNode(OperatorNode):
+    """Supervised, position-correct trust blend — the principled ``TrustGatedBlend`` replacement.
+
+    Each input is weighted by its *competence on the fit rows*, measured as the closeness
+    of the input's **actual contributed tensor** (``.evaluation``) to the ideal point (the
+    one-hot ground truth ``y``): ``w = softmax(-d / temperature)`` with ``d_i`` the mean
+    Brier distance of input ``i``'s evaluation to ``y``.
+
+    - vs :class:`TrustGatedBlend` (static per-base-model trust, valid only at *leaf* inputs
+      because an internal input is a fused ``.evaluation`` whose base-model trust is stale)
+      this reads the real streamed tensor in every slot, so it is correct at **any** position.
+    - vs :class:`SoftMedianNode` (distance to the per-cell *median*, which trims a lone correct
+      specialist) it uses distance to the **truth**, so it keeps the diamond and starves an
+      agreeing-but-wrong majority — the diamond-in-the-rough fix.
+
+    ``temperature`` is the single evolvable parameter (``->0`` hard-selects the most competent
+    input; ``->inf`` approaches the plain mean).
+
+    **Fit vs predict.** ``y`` is read from the global eval-context, which the engine sets only
+    during fitness evaluation (:meth:`Okapi._calculate_fitnesses`). When present (fit) the
+    weights are computed from the inputs' evaluations and **cached**; when absent (prediction)
+    the **cached** weights are reused (uniform fallback if the cache is missing or its length no
+    longer matches the inputs). The aggregate-over-rows weights are the only competence signal
+    that transfers to unseen test rows once ``y`` is gone — so the operator keeps a globally
+    competent specialist / drops globally bad poison, but does not capture row-region
+    complementarity or a fold-local memorizer (high aggregate competence).
+    """
+
+    _EPS = 1e-9
+
+    def __init__(self, children: Optional[Sequence[ValueNode]], temperature: float = 0.3):
+        super().__init__(children)
+        self.temperature = temperature
+        self._cached_weights: Optional[list[float]] = None
+
+    def __str__(self) -> str:
+        return f"IdealPointTrustNode(t={self.temperature:.2f})"
+
+    def copy(self):
+        new = IdealPointTrustNode(None, self.temperature)
+        # Carry the fit-time weights so prediction (no ``y``) reproduces the fit blend;
+        # do_pred_on_another_tensors copies the tree, so the cache must survive copy().
+        new._cached_weights = None if self._cached_weights is None else list(self._cached_weights)
+        return new
+
+    @property
+    def code(self) -> str:
+        return f"IPT[{self.temperature:.1f}]"
+
+    def _ideal_point_weights(self, inputs, y) -> np.ndarray:
+        """Per-input softmax weights from the Brier distance of each input's evaluation to the
+        one-hot ground truth. Computed in numpy (the weights are K tiny scalars), then applied
+        to the backend tensors — mirroring ``TrustGatedBlend``."""
+        yn = np.asarray(B.to_numpy(y))
+        dists = []
+        for e in inputs:
+            en = np.asarray(B.to_numpy(e), dtype=float)
+            if en.shape[-1] == 1:  # binary single positive-probability channel
+                d = float(np.mean((en.reshape(-1) - yn.reshape(-1)) ** 2))
+            else:  # multiclass: Brier distance to the one-hot label
+                onehot = np.eye(en.shape[-1])[yn.reshape(-1).astype(int)]
+                d = float(np.mean(np.sum((en - onehot) ** 2, axis=-1)))
+            dists.append(d)
+        z = -np.asarray(dists) / max(float(self.temperature), self._EPS)
+        z = z - np.max(z)  # stabilise the softmax (handles temperature -> 0)
+        w = np.exp(z)
+        return w / np.sum(w)
+
+    def calculate(self):
+        assert self.parent is not None, "OperatorNode must have a parent to be calculated"
+        inputs = list(self._stream_inputs())  # parent eval (slot 0) then each child's evaluation
+        y = get_eval_context()
+        if y is not None:  # fit: recompute competence weights and cache for prediction
+            w = self._ideal_point_weights(inputs, y)
+            self._cached_weights = [float(x) for x in w]
+        elif self._cached_weights is not None and len(self._cached_weights) == len(inputs):
+            w = np.asarray(self._cached_weights, dtype=float)  # predict: reuse fit weights
+        else:
+            w = np.full(len(inputs), 1.0 / len(inputs))  # no usable cache -> neutral mean
+        running = None
+        for wi, tensor in zip(w, inputs, strict=True):
+            term = tensor * float(wi)
+            running = term if running is None else running + term
+        return PF(running)
+
+    def mutate_params(self, mutation_strength: float = 0.1) -> bool:
+        self.temperature = float(np.clip(self.temperature + np.random.normal(0, mutation_strength), 0.01, 5.0))
+        return True
+
+    @staticmethod
+    def create_node(children):
+        return IdealPointTrustNode(children)
 
 
 class SoftMedianNode(OperatorNode):

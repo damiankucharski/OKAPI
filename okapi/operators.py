@@ -8,6 +8,7 @@ with simpler names for easier importing and usage.
 from okapi.node import (
     CloseThresholdNode,
     FarThresholdNode,
+    IdealPointTrustNode,
     LogitMeanNode,
     MaxNode,
     MeanNode,
@@ -29,3 +30,4 @@ LOGIT_MEAN = LogitMeanNode
 WEIGHTED_LOGIT_MEAN = WeightedLogitMeanNode
 SOFT_MEDIAN = SoftMedianNode
 TRUST_GATED_BLEND = TrustGatedBlend
+IDEAL_POINT_TRUST = IdealPointTrustNode
