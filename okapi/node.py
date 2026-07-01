@@ -838,40 +838,68 @@ class IdealPointTrustNode(OperatorNode):
     def code(self) -> str:
         return f"IPT[{self.temperature:.1f}]"
 
-    def _ideal_point_weights(self, inputs, y) -> np.ndarray:
-        """Per-input softmax weights from the Brier distance of each input's evaluation to the
-        one-hot ground truth. Computed in numpy (the weights are K tiny scalars), then applied
-        to the backend tensors — mirroring ``TrustGatedBlend``."""
+    def _brier(self, e, y) -> float:
+        """Mean Brier (squared) distance of one input's evaluation to the ground truth.
+
+        Shape-aware and computed **on-device**: when the prediction and ``y`` share a shape
+        (binary ``[N,1]``/``[N]``, per-pixel segmentation ``[S,H,W]``, multilabel ``[N,C]``) the
+        distance is just ``mean((e - y)**2)`` -- no per-input host copy, no one-hot. The one-hot
+        Brier is built **only** for genuine multiclass (``e`` has a trailing class axis ``C>1``
+        indexed by integer labels ``y``). Building it for a segmentation map would be
+        ``eye(width)[every_pixel]`` -> a width x n_pixels matrix -> the STARCOP OOM this guards
+        against (the old code keyed off ``shape[-1] == 1`` and mis-routed ``[S,H,W]`` here)."""
+        if tuple(B.shape(e)) == tuple(B.shape(y)):
+            # y (ground truth) may sit on a different device than the prediction e (e.g. gt on
+            # cpu, preds on cuda); align before the on-device subtraction. No-op for numpy.
+            de, dy = getattr(e, "device", None), getattr(y, "device", None)
+            yy = y.to(de) if (de is not None and dy is not None and de != dy) else y
+            diff = e - yy
+            return float(B.to_numpy(B.mean(diff * diff)))
+        en = np.asarray(B.to_numpy(e), dtype=float)
         yn = np.asarray(B.to_numpy(y))
-        dists = []
-        for e in inputs:
-            en = np.asarray(B.to_numpy(e), dtype=float)
-            if en.shape[-1] == 1:  # binary single positive-probability channel
-                d = float(np.mean((en.reshape(-1) - yn.reshape(-1)) ** 2))
-            else:  # multiclass: Brier distance to the one-hot label
-                onehot = np.eye(en.shape[-1])[yn.reshape(-1).astype(int)]
-                d = float(np.mean(np.sum((en - onehot) ** 2, axis=-1)))
-            dists.append(d)
-        z = -np.asarray(dists) / max(float(self.temperature), self._EPS)
+        if en.ndim == yn.ndim + 1 and en.shape[-1] > 1 and en.shape[:-1] == yn.shape:
+            onehot = np.eye(en.shape[-1])[yn.astype(int)]  # genuine multiclass labels
+            return float(np.mean(np.sum((en - onehot) ** 2, axis=-1)))
+        return float(np.mean((en.reshape(-1) - yn.reshape(-1)) ** 2))  # binary [N,1] vs [N]
+
+    def _weights_from_dists(self, dists) -> np.ndarray:
+        z = -np.asarray(dists, dtype=float) / max(float(self.temperature), self._EPS)
         z = z - np.max(z)  # stabilise the softmax (handles temperature -> 0)
         w = np.exp(z)
         return w / np.sum(w)
 
     def calculate(self):
         assert self.parent is not None, "OperatorNode must have a parent to be calculated"
-        inputs = list(self._stream_inputs())  # parent eval (slot 0) then each child's evaluation
+        parent = cast(ValueNode, self.parent)
+        used_parent_eval = parent.evaluation is not None
+        p_in = parent.evaluation if used_parent_eval else parent.value  # slot 0, kept across passes
         y = get_eval_context()
-        if y is not None:  # fit: recompute competence weights and cache for prediction
-            w = self._ideal_point_weights(inputs, y)
+        n_inputs = 1 + len(self.children)
+
+        if y is not None:  # fit: stream inputs once to score competence, cache weights for predict
+            dists = [self._brier(p_in, y)]
+            for child in self.children:
+                ce = child.calculate()
+                dists.append(self._brier(ce, y))
+                del ce  # drop our ref; eager-free nulls the child's cache so GPU memory is reclaimed
+                if Node._EAGER_FREE_EVALS and isinstance(child, ValueNode):
+                    child.evaluation = None
+            w = self._weights_from_dists(dists)
             self._cached_weights = [float(x) for x in w]
-        elif self._cached_weights is not None and len(self._cached_weights) == len(inputs):
+        elif self._cached_weights is not None and len(self._cached_weights) == n_inputs:
             w = np.asarray(self._cached_weights, dtype=float)  # predict: reuse fit weights
         else:
-            w = np.full(len(inputs), 1.0 / len(inputs))  # no usable cache -> neutral mean
-        running = None
-        for wi, tensor in zip(w, inputs, strict=True):
-            term = tensor * float(wi)
-            running = term if running is None else running + term
+            w = np.full(n_inputs, 1.0 / n_inputs)  # no usable cache -> neutral mean
+
+        # Blend by streaming the inputs again and accumulating one at a time, so a K-input trust
+        # node never materialises all K big tensors at once (peak ~= parent + running + one child).
+        running = p_in * float(w[0])
+        for wi, child in zip(w[1:], self.children, strict=True):
+            running = running + child.calculate() * float(wi)
+            if Node._EAGER_FREE_EVALS and isinstance(child, ValueNode):
+                child.evaluation = None
+        if Node._EAGER_FREE_EVALS and used_parent_eval:
+            parent.evaluation = None
         return PF(running)
 
     def mutate_params(self, mutation_strength: float = 0.1) -> bool:

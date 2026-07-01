@@ -159,6 +159,70 @@ def test_multiclass_concentrates_on_diamond_and_preserves_shape():
 
 
 # --------------------------------------------------------------------------------------
+# Shape-aware Brier: segmentation / multilabel must use element-wise distance, not one-hot
+# (regression for the STARCOP OOM: (S,H,W) preds have shape[-1] != 1 but are NOT multiclass)
+# --------------------------------------------------------------------------------------
+
+
+def _softmax_brier_blend(inputs, y, temp):
+    d = np.array([_mse(x, y) for x in inputs])
+    z = -d / max(temp, 1e-9)
+    z = z - z.max()
+    w = np.exp(z)
+    w = w / w.sum()
+    return w, sum(wi * x for wi, x in zip(w, inputs))
+
+
+def test_segmentation_shaped_predictions_use_elementwise_brier():
+    # Per-pixel maps (S, H, W): shape[-1] != 1 but NOT multiclass. The old `shape[-1] == 1`
+    # routing sent these to the one-hot branch -> eye(width)[every_pixel] (the STARCOP 730 GB
+    # OOM). Must now use element-wise Brier, keep per-pixel shape, and still find the diamond.
+    y = np.array([[[1.0, 0.0, 1.0], [0.0, 1.0, 0.0]], [[1.0, 1.0, 0.0], [0.0, 0.0, 1.0]]])  # (2,2,3)
+    diamond = np.clip(y * 0.9 + 0.05, 0.0, 1.0)
+    g1, g2 = 1.0 - diamond, np.full_like(y, 0.5)
+    tree, op = _tree(g1, [diamond, g2], temperature=0.3)
+    set_eval_context(y)
+    out = tree.predict()
+    assert out.shape == y.shape  # per-pixel shape preserved (no one-hot reshape)
+    assert np.argmax(op._cached_weights) == 1  # diamond slot wins
+    w, manual = _softmax_brier_blend([g1, diamond, g2], y, 0.3)
+    np.testing.assert_allclose(op._cached_weights, w, atol=1e-6)
+    np.testing.assert_allclose(out, manual, atol=1e-6)
+
+
+def test_multilabel_shaped_predictions_use_elementwise_brier():
+    y = np.array([[1.0, 0.0, 1.0], [0.0, 1.0, 1.0], [1.0, 1.0, 0.0]])  # (N, C) multi-hot == pred shape
+    diamond = np.clip(y * 0.9 + 0.05, 0.0, 1.0)
+    g1 = 1.0 - diamond
+    tree, op = _tree(g1, [diamond], temperature=0.3)
+    set_eval_context(y)
+    out = tree.predict()
+    assert out.shape == y.shape
+    assert op._cached_weights[1] > op._cached_weights[0]  # diamond child beats the wrong parent
+    _, manual = _softmax_brier_blend([g1, diamond], y, 0.3)
+    np.testing.assert_allclose(out, manual, atol=1e-6)
+
+
+def test_streaming_blend_identical_with_eager_free_on():
+    # The two-pass streaming blend (which frees inputs one at a time under eager-free) must give
+    # the same output as the default path.
+    from okapi.node import Node
+
+    tree_a, _ = _tree(G1, [DIAMOND, G2], temperature=0.3)
+    set_eval_context(Y)
+    out_off = tree_a.predict()
+    tree_b, _ = _tree(G1, [DIAMOND, G2], temperature=0.3)
+    set_eval_context(Y)
+    prev = Node._EAGER_FREE_EVALS
+    Node._EAGER_FREE_EVALS = True
+    try:
+        out_on = tree_b.predict()
+    finally:
+        Node._EAGER_FREE_EVALS = prev
+    np.testing.assert_allclose(out_on, out_off, atol=1e-9)
+
+
+# --------------------------------------------------------------------------------------
 # Global eval-context + engine wiring
 # --------------------------------------------------------------------------------------
 
