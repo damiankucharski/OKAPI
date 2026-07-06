@@ -154,6 +154,24 @@ def test_in_tree_calculate_binary():
     assert out.shape == (2, 1)
 
 
+@pytest.mark.parametrize("shape", [(5, 1), (4, 3), (4, 3, 2)])
+def test_calculate_streaming_matches_op_concat(shape):
+    rng = np.random.default_rng(10)
+    a = rng.uniform(0.01, 0.99, size=shape)
+    c = rng.uniform(0.01, 0.99, size=shape)
+    d = rng.uniform(0.01, 0.99, size=shape)
+    weights = [0.9, 1.1, 0.7]
+    node = WeightedLogitMeanNode(None, weights)
+    ref = node.op(np.stack([a, c, d], axis=0))
+
+    A = ValueNode(None, a, "A")
+    C = ValueNode(None, c, "C")
+    D = ValueNode(None, d, "D")
+    A.add_child(WeightedLogitMeanNode([C, D], weights))
+
+    np.testing.assert_allclose(A.calculate(), ref, atol=1e-9)
+
+
 # ------------------------------------ GP plumbing ----------------------------------
 
 

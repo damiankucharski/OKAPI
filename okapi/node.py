@@ -1,3 +1,4 @@
+import os
 from typing import List, Optional, Sequence, TypeVar, Union, cast
 
 import numpy as np
@@ -358,6 +359,27 @@ class LogitMeanNode(OperatorNode):
         m = B.clip(m, -self._CLAMP, self._CLAMP)
         return B.exp(m)
 
+    def calculate(self):
+        running_sum = None
+        count = 0
+        binary = None
+        for tensor in self._stream_inputs():
+            if binary is None:
+                binary = B.shape(tensor)[-1] == 1
+            xc = B.clip(tensor, self._EPS, 1.0 - self._EPS)
+            transformed = B.log(xc) - B.log(1.0 - xc) if binary else B.log(xc)
+            if running_sum is None:
+                running_sum = transformed
+            else:
+                running_sum += transformed
+            count += 1
+        m = self.temperature * (running_sum / count)
+        if binary:
+            m = m + self.shift
+        m = B.clip(m, -self._CLAMP, self._CLAMP)
+        result = 1.0 / (1.0 + B.exp(-m)) if binary else B.exp(m)
+        return PF(result)
+
     def mutate_params(self, mutation_strength: float = 0.1) -> bool:
         self.temperature = float(np.clip(self.temperature + np.random.normal(0, mutation_strength * 5.0), 0.05, 50.0))
         self.shift = float(self.shift + np.random.normal(0, mutation_strength * 2.0))
@@ -604,6 +626,24 @@ class WeightedLogitMeanNode(OperatorNode):
         m = B.clip(m, -self._CLAMP, self._CLAMP)
         return B.exp(m)
 
+    def calculate(self):
+        self._weight_length_assertion()
+        running_sum = None
+        binary = None
+        for i, tensor in enumerate(self._stream_inputs()):
+            if binary is None:
+                binary = B.shape(tensor)[-1] == 1
+            xc = B.clip(tensor, self._EPS, 1.0 - self._EPS)
+            transformed = B.log(xc) - B.log(1.0 - xc) if binary else B.log(xc)
+            weighted = transformed * self._weights[i]
+            if running_sum is None:
+                running_sum = weighted
+            else:
+                running_sum += weighted
+        m = B.clip(running_sum, -self._CLAMP, self._CLAMP)
+        result = 1.0 / (1.0 + B.exp(-m)) if binary else B.exp(m)
+        return PF(result)
+
     def add_child(self, child_node: Node):
         logger.debug(f"Adding child to WeightedLogitMeanNode with {len(self._weights)} weights")
         assert isinstance(child_node, ValueNode), "Child node of WLMN must be a ValueNode"
@@ -768,6 +808,9 @@ class ThresholdNode(OperatorNode):
 
     def op(self, x):
         orig_shape = B.shape(x)
+        if x.__class__.__module__.startswith("torch"):
+            return self._op_torch_chunked(x, orig_shape)
+
         adjusted = (x - self.threshold) ** 2
         adjusted = B.reshape(adjusted, (x.shape[0], -1))
 
@@ -783,6 +826,28 @@ class ThresholdNode(OperatorNode):
         x = B.reshape(x_selected, orig_shape[1:])
 
         return x
+
+    def _op_torch_chunked(self, x, orig_shape):
+        import torch
+
+        x_reshaped = x.reshape(x.shape[0], -1)
+        n_cols = x_reshaped.shape[1]
+        chunk_size = int(os.environ.get("OKAPI_THRESHOLD_CHUNK_SIZE", "262144"))
+        selected_chunks = []
+
+        for start in range(0, n_cols, chunk_size):
+            end = min(start + chunk_size, n_cols)
+            x_chunk = x_reshaped[:, start:end]
+            adjusted = (x_chunk - self.threshold).square()
+            if self.close:
+                ixes = torch.argmin(adjusted, dim=0)
+            else:
+                ixes = torch.argmax(adjusted, dim=0)
+            col_indices = torch.arange(end - start, device=x.device)
+            selected_chunks.append(x_chunk[ixes, col_indices])
+
+        x_selected = torch.cat(selected_chunks, dim=0)
+        return x_selected.reshape(orig_shape[1:])
 
     def adjust_params(self):
         return
