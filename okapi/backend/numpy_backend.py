@@ -52,6 +52,10 @@ class NumpyBackend(BackendInterface):
         return np.log(x)
 
     @staticmethod
+    def exp(x):
+        return np.exp(x)
+
+    @staticmethod
     def to_float(x):
         return x.astype(float)
 
