@@ -1,3 +1,4 @@
+import os
 from typing import List, Optional, Sequence, TypeVar, Union, cast
 
 import numpy as np
@@ -23,6 +24,13 @@ class Node:
         parent (Union[Node, None]): A reference to a parent node, of which this node is a child.
         children (List[Node]): A list of references to a children nodes.
     """
+
+    # When True, intermediate ValueNode.evaluation results are freed eagerly during
+    # tree evaluation (inside OperatorNode._concat / streaming reductions) as soon
+    # as a parent consumes them. Toggled by Tree.predict() via try/finally so that
+    # direct calls to Node.calculate() keep the older "caches remain for inspection"
+    # behavior used by existing tests and debugging workflows.
+    _EAGER_FREE_EVALS: bool = False
 
     def __init__(self, children: Optional[Sequence["Node"]] = None):
         """
@@ -211,12 +219,37 @@ class OperatorNode(Node):
     def _concat(self):
         assert self.parent is not None, "OperatorNode must have a parent to be calculated"
         parent: ValueNode = cast(ValueNode, self.parent)
-        parent_eval = parent.evaluation if parent.evaluation is not None else parent.value
+        used_parent_eval = parent.evaluation is not None
+        parent_eval = parent.evaluation if used_parent_eval else parent.value
         logger.trace(f"Concatenating parent and {len(self.children)} children tensors")
-        return B.concat(
+        concat = B.concat(
             [B.unsqueeze(parent_eval, axis=0)] + [B.unsqueeze(child.calculate(), axis=0) for child in self.children],
             axis=0,
         )
+        if Node._EAGER_FREE_EVALS:
+            if used_parent_eval:
+                parent.evaluation = None
+            for child in self.children:
+                if isinstance(child, ValueNode):
+                    child.evaluation = None
+        return concat
+
+    def _stream_inputs(self):
+        """Yield parent_eval and each child's evaluation one at a time for
+        streaming reductions. With _EAGER_FREE_EVALS on, cached evaluations are
+        nulled immediately after being yielded so the consumer's `+=` / min /
+        max accumulation can reclaim the underlying GPU tensor before moving
+        on to the next child. parent.value (base tensor) is never touched."""
+        assert self.parent is not None, "OperatorNode must have a parent to be calculated"
+        parent: ValueNode = cast(ValueNode, self.parent)
+        used_parent_eval = parent.evaluation is not None
+        yield parent.evaluation if used_parent_eval else parent.value
+        if Node._EAGER_FREE_EVALS and used_parent_eval:
+            parent.evaluation = None
+        for child in self.children:
+            yield child.calculate()
+            if Node._EAGER_FREE_EVALS and isinstance(child, ValueNode):
+                child.evaluation = None
 
     @staticmethod
     def create_node(children):
@@ -224,6 +257,18 @@ class OperatorNode(Node):
 
     def op(self, x):
         return x
+
+    def mutate_params(self, mutation_strength: float = 0.1) -> bool:
+        """
+        Mutate node parameters. Override in parametrized nodes.
+
+        Args:
+            mutation_strength: Controls the magnitude of parameter changes (default 0.1)
+
+        Returns:
+            True if parameters were mutated, False otherwise
+        """
+        return False  # Default: no parameters to mutate
 
 
 class MeanNode(OperatorNode):
@@ -249,9 +294,102 @@ class MeanNode(OperatorNode):
     def op(self, x):
         return B.mean(x, axis=0)
 
+    def calculate(self):
+        running_sum = None
+        count = 0
+        for tensor in self._stream_inputs():
+            if running_sum is None:
+                running_sum = B.clone(tensor)
+            else:
+                running_sum += tensor
+            count += 1
+        return PF(running_sum / count)
+
     @staticmethod
     def create_node(children):  # TODO: it could be derived from simple vs parametrized OperatorNode
         return MeanNode(children)
+
+
+class LogitMeanNode(OperatorNode):
+    """Mean in logit space with a learnable temperature and shift.
+
+    The Bayes-optimal fusion of calibrated, conditionally-independent detectors is
+    additive in *logit* space, not in probability space (where ``MeanNode``
+    operates and loses information). This node maps inputs to logits, averages
+    them, applies a learnable affine recalibration ``temperature * mean_logit +
+    shift`` and maps back:
+
+    - binary single-channel ``[K, *, 1]``: ``sigmoid(temperature * mean(logit(x)) + shift)``;
+    - multiclass ``[K, *, C]``: ``exp(temperature * mean(log x))`` (a temperature-scaled
+      geometric mean / product rule), left for the tree postprocessing to renormalise.
+
+    ``temperature`` interpolates between a single-model logit (small t), a logit
+    *mean* (t=1) and a logit *sum* (t≈K, the independent-evidence optimum);
+    ``shift`` is the recalibration / decision-threshold degree of freedom that
+    probability-space operators lack. Both are evolved via ``mutate_params``.
+    """
+
+    _EPS = 1e-6
+    _CLAMP = 30.0
+
+    def __init__(self, children: Optional[Sequence[ValueNode]], temperature: float = 1.0, shift: float = 0.0):
+        super().__init__(children)
+        self.temperature = temperature
+        self.shift = shift
+
+    def __str__(self) -> str:
+        return f"LogitMeanNode(t={self.temperature:.2f}, s={self.shift:.2f})"
+
+    def copy(self):
+        return LogitMeanNode(None, self.temperature, self.shift)
+
+    @property
+    def code(self) -> str:
+        return f"LMN[{self.temperature:.1f},{self.shift:.1f}]"
+
+    def op(self, x):
+        xc = B.clip(x, self._EPS, 1.0 - self._EPS)
+        if B.shape(x)[-1] == 1:  # binary positive-probability channel -> logit space
+            z = B.log(xc) - B.log(1.0 - xc)
+            m = self.temperature * B.mean(z, axis=0) + self.shift
+            m = B.clip(m, -self._CLAMP, self._CLAMP)
+            return 1.0 / (1.0 + B.exp(-m))
+        # multiclass: temperature-scaled geometric mean (product rule); PF renormalises
+        m = self.temperature * B.mean(B.log(xc), axis=0)
+        m = B.clip(m, -self._CLAMP, self._CLAMP)
+        return B.exp(m)
+
+    def calculate(self):
+        running_sum = None
+        count = 0
+        binary = None
+        for tensor in self._stream_inputs():
+            if binary is None:
+                binary = B.shape(tensor)[-1] == 1
+            xc = B.clip(tensor, self._EPS, 1.0 - self._EPS)
+            transformed = B.log(xc) - B.log(1.0 - xc) if binary else B.log(xc)
+            if running_sum is None:
+                running_sum = transformed
+            else:
+                running_sum += transformed
+            count += 1
+        m = self.temperature * (running_sum / count)
+        if binary:
+            m = m + self.shift
+        m = B.clip(m, -self._CLAMP, self._CLAMP)
+        result = 1.0 / (1.0 + B.exp(-m)) if binary else B.exp(m)
+        return PF(result)
+
+    def mutate_params(self, mutation_strength: float = 0.1) -> bool:
+        self.temperature = float(np.clip(self.temperature + np.random.normal(0, mutation_strength * 5.0), 0.05, 50.0))
+        self.shift = float(self.shift + np.random.normal(0, mutation_strength * 2.0))
+        return True
+
+    @staticmethod
+    def create_node(children):
+        t = float(np.exp(np.random.normal(0.0, 0.5)))  # lognormal around 1, strictly positive
+        s = float(np.random.normal(0.0, 0.3))
+        return LogitMeanNode(children, t, s)
 
 
 class WeightedMeanNode(OperatorNode):
@@ -281,6 +419,18 @@ class WeightedMeanNode(OperatorNode):
         x = x * w
         x = B.sum(x, axis=0)
         return x
+
+    def calculate(self):
+        self._weight_length_assertion()
+        self._weight_sum_assertion()
+        weights = self._weights
+        running_sum = None
+        for i, tensor in enumerate(self._stream_inputs()):
+            if running_sum is None:
+                running_sum = tensor * weights[i]
+            else:
+                running_sum += tensor * weights[i]
+        return PF(running_sum)
 
     def copy(self):
         return WeightedMeanNode([], [x for x in self._weights])  # this needs to be rethought
@@ -327,17 +477,14 @@ class WeightedMeanNode(OperatorNode):
         super().replace_child(child, replacement_node)
         self._weight_length_assertion()
 
-    def calculate(self):
-        self._weight_length_assertion()
-        self._weight_sum_assertion()
-        return super().calculate()
-
     def __str__(self) -> str:
         return f"WeightedMeanNode with weights: {B.to_numpy(B.tensor(self._weights)).round(2)}"
 
     @property
     def code(self) -> str:
-        return "WMN"
+        # Include weights in code for proper duplicate detection
+        weights_str = ",".join(f"{w:.1f}" for w in self._weights)
+        return f"WMN[{weights_str}]"
 
     @property
     def weights(self):
@@ -386,6 +533,157 @@ class WeightedMeanNode(OperatorNode):
             assert actual_length == expected_length, "Length of weight array is different than number of adjacent nodes"
         logger.trace(f"Weight length assertion passed: {actual_length}")
 
+    def mutate_params(self, mutation_strength: float = 0.1) -> bool:
+        """
+        Mutate weights by adding Gaussian noise and renormalizing to sum to 1.
+
+        Args:
+            mutation_strength: Standard deviation of Gaussian noise (default 0.1)
+
+        Returns:
+            True (parameters were mutated)
+        """
+        logger.debug(f"Mutating WeightedMeanNode weights with strength {mutation_strength}")
+        logger.trace(f"Original weights: {self._weights}")
+
+        # Add Gaussian noise to each weight
+        noise = np.random.normal(0, mutation_strength, len(self._weights))
+        new_weights = np.array(self._weights) + noise
+
+        # Clip to ensure non-negative weights
+        new_weights = np.clip(new_weights, 0.01, None)  # Small minimum to avoid zero weights
+
+        # Renormalize to sum to 1
+        new_weights = new_weights / np.sum(new_weights)
+        self._weights = new_weights.tolist()
+
+        logger.trace(f"Mutated weights: {self._weights}")
+        self._weight_sum_assertion()
+        return True
+
+
+class WeightedLogitMeanNode(OperatorNode):
+    """Per-input weighted sum in *logit* space (the calibrated-stacking link).
+
+    ``LogitMeanNode`` applies a single global ``temperature`` to the *mean* logit;
+    ``WeightedMeanNode`` applies per-input weights but in *probability* space. This
+    node is their natural join -- per-input weights applied in logit space:
+
+    - binary single-channel ``[K, *, 1]``: ``sigmoid(Sum_i w_i * logit(x_i))``;
+    - multiclass ``[K, *, C]``: ``exp(Sum_i w_i * log(x_i))`` (weighted product rule;
+      the tree postprocessing renormalises).
+
+    The Bayes-optimal fusion of calibrated detectors with per-model noise scales
+    ``k_i`` is ``sigmoid(Sum (1/k_i) * logit p_i)`` -- i.e. this node *with* ``w_i =
+    1/k_i`` -- which probability-space averaging and a single global temperature
+    cannot express. Weights are **free and non-negative**, deliberately *not*
+    normalised to 1: their scale is the effective temperature, so ``Sum w_i ~ K``
+    recovers the independent-evidence logit *sum* and equal small weights recover
+    ``LogitMeanNode`` (it is a strict superset). The parent input occupies slot 0
+    and each child follows, mirroring ``WeightedMeanNode``; weights evolve via
+    ``mutate_params`` (additive Gaussian, floored at 0). Because there is no
+    sum-to-one constraint, the structural weight bookkeeping is simpler than
+    ``WeightedMeanNode`` -- add/remove just append/pop a free weight, no rescaling.
+    """
+
+    _EPS = 1e-6
+    _CLAMP = 30.0
+    _W_MAX = 50.0
+
+    def __init__(self, children: Optional[Sequence[ValueNode]], weights: List[float]):
+        self._weights = list(weights)
+        super().__init__(children)
+
+    def __str__(self) -> str:
+        return f"WeightedLogitMeanNode with weights: {np.round(self._weights, 2)}"
+
+    def copy(self):
+        # Mirror WeightedMeanNode: empty children + full weights; copy_subtree
+        # re-attaches the children directly, restoring length consistency.
+        return WeightedLogitMeanNode([], [w for w in self._weights])
+
+    @property
+    def code(self) -> str:
+        weights_str = ",".join(f"{w:.1f}" for w in self._weights)
+        return f"WLMN[{weights_str}]"
+
+    @property
+    def weights(self):
+        return B.tensor(self._weights)
+
+    def op(self, x):
+        xc = B.clip(x, self._EPS, 1.0 - self._EPS)
+        weight_shape = (-1, *([1] * (len(x.shape) - 1)))
+        w = B.reshape(self.weights, weight_shape)
+        w = B.to_device(w, x)  # Ensure weights are on same device as input
+        if B.shape(x)[-1] == 1:  # binary positive-probability channel -> logit space
+            z = B.log(xc) - B.log(1.0 - xc)
+            m = B.sum(w * z, axis=0)
+            m = B.clip(m, -self._CLAMP, self._CLAMP)
+            return 1.0 / (1.0 + B.exp(-m))
+        # multiclass: weighted product rule (generalises the geometric mean); PF renormalises
+        m = B.sum(w * B.log(xc), axis=0)
+        m = B.clip(m, -self._CLAMP, self._CLAMP)
+        return B.exp(m)
+
+    def calculate(self):
+        self._weight_length_assertion()
+        running_sum = None
+        binary = None
+        for i, tensor in enumerate(self._stream_inputs()):
+            if binary is None:
+                binary = B.shape(tensor)[-1] == 1
+            xc = B.clip(tensor, self._EPS, 1.0 - self._EPS)
+            transformed = B.log(xc) - B.log(1.0 - xc) if binary else B.log(xc)
+            weighted = transformed * self._weights[i]
+            if running_sum is None:
+                running_sum = weighted
+            else:
+                running_sum += weighted
+        m = B.clip(running_sum, -self._CLAMP, self._CLAMP)
+        result = 1.0 / (1.0 + B.exp(-m)) if binary else B.exp(m)
+        return PF(result)
+
+    def add_child(self, child_node: Node):
+        logger.debug(f"Adding child to WeightedLogitMeanNode with {len(self._weights)} weights")
+        assert isinstance(child_node, ValueNode), "Child node of WLMN must be a ValueNode"
+        # Free (unnormalised) weight: a new input enters near the logit-sum scale.
+        self._weights.append(float(np.exp(np.random.normal(0.0, 0.5))))
+        super().add_child(child_node)
+        self._weight_length_assertion()
+
+    def remove_child(self, child_node: Node):
+        logger.debug(f"Removing child from WeightedLogitMeanNode with {len(self._weights)} weights")
+        assert isinstance(child_node, ValueNode), "Child node of WLMN must be a ValueNode"
+        child_ix = self.children.index(child_node)
+        self._weights.pop(child_ix + 1)  # +1: the parent input occupies slot 0
+        super().remove_child(child_node)
+        self._weight_length_assertion()
+        return child_node
+
+    def replace_child(self, child, replacement_node):
+        super().replace_child(child, replacement_node)
+        self._weight_length_assertion()
+
+    def _weight_length_assertion(self):
+        expected_length = len(self.children) + 1
+        actual_length = len(self._weights)
+        if actual_length != expected_length:
+            logger.error(f"WLMN weight length ({actual_length}) does not match expected {expected_length}")
+            assert actual_length == expected_length, "Length of weight array is different than number of adjacent nodes"
+
+    def mutate_params(self, mutation_strength: float = 0.1) -> bool:
+        noise = np.random.normal(0, mutation_strength * 3.0, len(self._weights))
+        new_weights = np.clip(np.array(self._weights) + noise, 0.0, self._W_MAX)
+        self._weights = new_weights.tolist()
+        return True
+
+    @staticmethod
+    def create_node(children: Sequence[ValueNode]):
+        n = len(children) + 1  # parent slot + one weight per child
+        weights = np.exp(np.random.normal(0.0, 0.5, size=n)).tolist()  # lognormal ~1, strictly positive
+        return WeightedLogitMeanNode(children, weights)
+
 
 class MaxNode(OperatorNode):
     """
@@ -409,6 +707,15 @@ class MaxNode(OperatorNode):
 
     def op(self, x):
         return B.max(x, axis=0)
+
+    def calculate(self):
+        result = None
+        for tensor in self._stream_inputs():
+            if result is None:
+                result = B.clone(tensor)
+            else:
+                result = B.maximum(result, tensor)
+        return PF(result)
 
     def adjust_params(self):
         return
@@ -440,6 +747,15 @@ class MinNode(OperatorNode):
 
     def op(self, x):
         return B.min(x, axis=0)
+
+    def calculate(self):
+        result = None
+        for tensor in self._stream_inputs():
+            if result is None:
+                result = B.clone(tensor)
+            else:
+                result = B.minimum(result, tensor)
+        return PF(result)
 
     def adjust_params(self):
         return
@@ -473,7 +789,7 @@ class ThresholdNode(OperatorNode):
     """
 
     def __init__(self, children: Optional[Sequence[ValueNode]], threshold: float, close=True):
-        assert threshold >= 0 or threshold <= 1, f"Threshold must be between 0 and 1 (inclusive) but is equal {threshold}"
+        assert 0 <= threshold <= 1, f"Threshold must be between 0 and 1 (inclusive) but is equal {threshold}"
         super().__init__(children)
         self.close = close
         self.strclose = "Close" if self.close else "Far"
@@ -487,10 +803,14 @@ class ThresholdNode(OperatorNode):
 
     @property
     def code(self) -> str:
-        return f"TH{self.strclose}".upper()
+        # Include threshold in code for proper duplicate detection
+        return f"TH{self.strclose}[{self.threshold:.1f}]".upper()
 
     def op(self, x):
         orig_shape = B.shape(x)
+        if x.__class__.__module__.startswith("torch"):
+            return self._op_torch_chunked(x, orig_shape)
+
         adjusted = (x - self.threshold) ** 2
         adjusted = B.reshape(adjusted, (x.shape[0], -1))
 
@@ -507,8 +827,49 @@ class ThresholdNode(OperatorNode):
 
         return x
 
+    def _op_torch_chunked(self, x, orig_shape):
+        import torch
+
+        x_reshaped = x.reshape(x.shape[0], -1)
+        n_cols = x_reshaped.shape[1]
+        chunk_size = int(os.environ.get("OKAPI_THRESHOLD_CHUNK_SIZE", "262144"))
+        selected_chunks = []
+
+        for start in range(0, n_cols, chunk_size):
+            end = min(start + chunk_size, n_cols)
+            x_chunk = x_reshaped[:, start:end]
+            adjusted = (x_chunk - self.threshold).square()
+            if self.close:
+                ixes = torch.argmin(adjusted, dim=0)
+            else:
+                ixes = torch.argmax(adjusted, dim=0)
+            col_indices = torch.arange(end - start, device=x.device)
+            selected_chunks.append(x_chunk[ixes, col_indices])
+
+        x_selected = torch.cat(selected_chunks, dim=0)
+        return x_selected.reshape(orig_shape[1:])
+
     def adjust_params(self):
         return
+
+    def mutate_params(self, mutation_strength: float = 0.1) -> bool:
+        """
+        Mutate threshold by adding Gaussian noise, clipped to [0, 1].
+
+        Args:
+            mutation_strength: Standard deviation of Gaussian noise (default 0.1)
+
+        Returns:
+            True (parameters were mutated)
+        """
+        logger.debug(f"Mutating ThresholdNode threshold with strength {mutation_strength}")
+        logger.trace(f"Original threshold: {self.threshold}")
+
+        noise = np.random.normal(0, mutation_strength)
+        self.threshold = float(np.clip(self.threshold + noise, 0.0, 1.0))
+
+        logger.trace(f"Mutated threshold: {self.threshold}")
+        return True
 
     @staticmethod
     def create_node(children):

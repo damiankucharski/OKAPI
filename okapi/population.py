@@ -100,8 +100,10 @@ def choose_pareto(trees: List[Tree], fitnesses: np.ndarray, n: int, objectives: 
         logger.debug(f"Too many Pareto-optimal trees ({len(pareto_indices)}), selecting top {n} by proximity")
         if minimize_node_count:
             objectives = objectives[:-1]
-        _, sorted_indices = sort_by_optimal_point_proximity(fitnesses, objectives)
-        selected_indices = sorted_indices[:n]
+        # Rank only the Pareto-optimal trees by proximity, never the dominated ones.
+        pareto_fitnesses = fitnesses[pareto_indices]
+        _, sorted_indices = sort_by_optimal_point_proximity(pareto_fitnesses, objectives)
+        selected_indices = pareto_indices[sorted_indices[:n]]
     else:
         selected_indices = pareto_indices
         logger.debug(f"Using all {len(selected_indices)} Pareto-optimal trees")

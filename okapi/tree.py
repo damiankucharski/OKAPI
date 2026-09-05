@@ -103,6 +103,60 @@ class Tree:
         """
         return len(self.nodes["value_nodes"]) + len(self.nodes["op_nodes"])
 
+    @property
+    def depth(self) -> int:
+        """
+        Maximum depth of the tree, measured in node levels.
+
+        The root ValueNode is level 1; a ``value -> operator -> value`` fusion has
+        depth 3. This matches the convention used by the saved-tree depth scanners
+        (``experiments/scan_tree_depths.py`` / ``experiments/depth_probe.py``) so that
+        in-evolution caps and post-hoc audits speak the same units.
+
+        Returns:
+            The number of levels from the root to the deepest leaf.
+        """
+
+        def _node_depth(node) -> int:
+            return 1 if not node.children else 1 + max(_node_depth(child) for child in node.children)
+
+        return _node_depth(self.root)
+
+    def _depth_map(self) -> dict:
+        """Map every node to its depth from the root (root = 1), in one traversal."""
+        depth = {self.root: 1}
+        stack = [self.root]
+        while stack:
+            node = stack.pop()
+            d = depth[node]
+            for child in node.children:
+                depth[child] = d + 1
+                stack.append(child)
+        return depth
+
+    def legal_append_targets(self, max_depth: int | None = None, max_nodes: int | None = None) -> list:
+        """Nodes to which ``append_new_node_mutation`` can attach within the bloat caps.
+
+        Appending to a ValueNode inserts an operator + value child (depth +2, nodes +2);
+        appending to an OperatorNode inserts a value child (depth +1, nodes +1). A node is
+        a legal target iff the resulting tree still respects both caps. With both caps
+        ``None`` every node qualifies (the uncapped behaviour). This is the basis of the
+        deterministic, retry-free cap enforcement: the search only ever *selects* a legal
+        attachment point instead of generating an illegal one and rejecting it. A depth cap
+        therefore never forbids appending outright -- it just restricts growth to shallow
+        nodes, which is exactly how compact *wide* trees form at e.g. ``max_depth=3``.
+        """
+        n = self.nodes_count
+        depth_of = self._depth_map()
+        targets: list = []
+        for node in self.nodes["value_nodes"]:
+            if (max_nodes is None or n + 2 <= max_nodes) and (max_depth is None or depth_of[node] + 2 <= max_depth):
+                targets.append(node)
+        for node in self.nodes["op_nodes"]:
+            if (max_nodes is None or n + 1 <= max_nodes) and (max_depth is None or depth_of[node] + 1 <= max_depth):
+                targets.append(node)
+        return targets
+
     def _clean_evals(self):
         """
         Reset the cached evaluation results for all value nodes in the tree.
@@ -157,14 +211,25 @@ class Tree:
             fitness = objective_function(prediction, ground_truth)
         """
         logger.debug("Computing prediction with cache management")
-        result = self.evaluation
-        result_copy = B.clone(result)
+        # Scoped eager-free: free per-node .evaluation caches as each parent op
+        # consumes them. try/finally so .calculate() elsewhere keeps the "caches
+        # remain after eval" behavior used by tests and debugging.
+        prev_flag = Node._EAGER_FREE_EVALS
+        Node._EAGER_FREE_EVALS = True
+        try:
+            with B.no_grad():
+                result = self.evaluation
+        finally:
+            Node._EAGER_FREE_EVALS = prev_flag
 
         if clear_cache:
+            # Tree no longer holds a ref to result; caller's alias is unique.
             self._clean_evals()
             logger.trace("Evaluation caches cleared")
-
-        return result_copy
+            return result
+        # Cache kept → result is aliased by self.root.evaluation. Return a clone
+        # so the caller cannot mutate internal state through it.
+        return B.clone(result)
 
     def copy(self):
         """
@@ -338,7 +403,7 @@ class Tree:
 
         for nodes_type in nodes_types:
             assert nodes_type is not None, "Nodes type cannot be None"
-            order = np.arange(len(self.nodes[nodes_type]))
+            order = np.random.permutation(len(self.nodes[nodes_type]))
             for i in order:
                 node = self.nodes[nodes_type][i]
                 if (allow_leaves or node.children != []) and (allow_root or node != self.root):
@@ -428,7 +493,8 @@ class Tree:
             [current_tensors is not None, preds_directory is not None]
         ), "Either preds directory or current tensors needs to be set, none was set"
 
-        current_tensors = {}
+        if current_tensors is None:
+            current_tensors = {}
         copy_tree = self.copy()
         copy_tree._clean_values_and_evals()
         current_tensors = copy_tree._load_tensors_to_tree(preds_directory, current_tensors)

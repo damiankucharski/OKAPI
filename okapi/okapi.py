@@ -15,7 +15,7 @@ from okapi.fitness import average_precision_fitness
 from okapi.globals import BACKEND as B
 from okapi.globals import DEVICE, set_postprocessing_function
 from okapi.lib_types import Tensor
-from okapi.mutation import get_allowed_mutations
+from okapi.mutation import get_allowed_mutations, mutate_parameters
 from okapi.node import OperatorNode
 from okapi.operators import CLOSE_THRESHOLD, FAR_THRESHOLD, MAX, MEAN, MIN, WEIGHTED_MEAN
 from okapi.pareto import _get_optimal_point_based_on_list_of_objective_functions, maximize
@@ -65,6 +65,9 @@ class Okapi:
         backend: Union[str, None] = None,
         seed: int = 0,
         postprocessing_function=None,
+        mutation_strength: float = 0.1,
+        max_depth: int | None = None,
+        max_nodes: int | None = None,
     ):
         """
         Initialize the Okapi evolutionary algorithm.
@@ -84,6 +87,14 @@ class Okapi:
             seed: Random seed for reproducibility
             postprocessing_function: Function applied after each Op Node.
             Most of the operations may break some data characteristics, for example vector summing to one. This can be used to fix that.
+            mutation_strength: Controls magnitude of parameter mutations (default 0.1).
+            Higher values cause larger parameter changes during evolution.
+            max_depth: Optional hard cap on tree depth (levels; root = 1, a value->op->value
+            fusion = 3). ``None`` (default) imposes no limit and reproduces the historical
+            behaviour exactly. When set, variation never produces an individual deeper than this.
+            max_nodes: Optional hard cap on total node count. ``None`` (default) imposes no limit.
+            Both caps are enforced at generation time (mutation + crossover), not merely at
+            selection, so they also bound evaluation cost - see ``_within_caps``.
         """
         if backend is not None:
             Backend.set_backend(backend)
@@ -96,7 +107,10 @@ class Okapi:
         self.population_multiplier = population_multiplier
         self.tournament_size = tournament_size
         self.minimize_node_count = minimize_node_count
+        self.mutation_strength = mutation_strength
         self.seed = seed
+        self.max_depth = max_depth
+        self.max_nodes = max_nodes
 
         self.objective_functions = objective_functions
         self.objectives = objectives
@@ -215,32 +229,74 @@ class Okapi:
 
         self.additional_population = []
 
+    def _within_caps(self, tree: Tree) -> bool:
+        """Return whether ``tree`` respects the configured ``max_depth`` / ``max_nodes`` caps.
+
+        With both caps at their ``None`` default this is always ``True`` (uncapped). When a
+        cap is set, variation now selects only cap-legal moves up front (deterministic
+        legal-target append + legal-pair crossover), so this is used as a cheap *invariant
+        assertion* after each operator rather than a generate-and-reject gate.
+        """
+        if self.max_nodes is not None and tree.nodes_count > self.max_nodes:
+            return False
+        if self.max_depth is not None and tree.depth > self.max_depth:
+            return False
+        return True
+
     def _perform_crossovers(self, fitnesses: npt.NDArray[np.float64]):
         crossover_count = 0
-        while len(self.additional_population) < (self.population_multiplier * self.population_size):
+        target = self.population_multiplier * self.population_size
+        while len(self.additional_population) < target:
             idx1, idx2 = tournament_selection_indexes(fitnesses, self.tournament_size, self.optimal_point)
             parent_1, parent_2 = self.population[idx1], self.population[idx2]
-            new_tree_1, new_tree_2 = crossover(parent_1, parent_2)
+            # Caps are honoured by construction: crossover draws only from points whose
+            # offspring stay within budget (value root x root is always legal, so a usable
+            # pair always exists). No retry/fallback needed; assert the invariant.
+            new_tree_1, new_tree_2 = crossover(parent_1, parent_2, max_depth=self.max_depth, max_nodes=self.max_nodes)
+            assert self._within_caps(new_tree_1) and self._within_caps(new_tree_2)
             self.additional_population += [new_tree_1, new_tree_2]
             crossover_count += 1
         return crossover_count
 
     def _mutate_additional_population(self) -> int:
         mutation_count = 0
+        trees_to_add = []
+
         for tree in self.additional_population:
-            mutation_chance = np.random.rand()
-            if mutation_chance < tree.mutation_chance:
-                allowed_mutations = np.array(get_allowed_mutations(tree))
-                chosen_mutation = np.random.choice(allowed_mutations)
-                logger.trace(f"Applying mutation: {chosen_mutation.__name__}")
-                mutated_tree = chosen_mutation(
-                    tree,
-                    models=self.models,
-                    ids=self.ids,
-                    allowed_ops=self.allowed_ops,
-                )
-                self.additional_population.append(mutated_tree)
+            current_tree = tree
+
+            # Structural mutation
+            if np.random.rand() < tree.mutation_chance:
+                allowed_mutations = get_allowed_mutations(tree, max_depth=self.max_depth, max_nodes=self.max_nodes)
+                if allowed_mutations:
+                    chosen_mutation = np.random.choice(np.array(allowed_mutations))
+                    logger.trace(f"Applying structural mutation: {chosen_mutation.__name__}")
+                    mutated = chosen_mutation(
+                        tree,
+                        models=self.models,
+                        ids=self.ids,
+                        allowed_ops=self.allowed_ops,
+                        max_depth=self.max_depth,
+                        max_nodes=self.max_nodes,
+                    )
+                    # append draws only cap-legal targets; the shrinking mutations cannot
+                    # exceed a cap a within-caps parent already met. So the result is always
+                    # within caps -> assert the invariant instead of reverting.
+                    assert self._within_caps(mutated)
+                    current_tree = mutated
+                    mutation_count += 1
+
+            # Parameter mutation (applied to structurally mutated tree if any, else original)
+            if np.random.rand() < tree.mutation_chance:
+                logger.trace("Applying parameter mutation")
+                current_tree = mutate_parameters(current_tree, mutation_strength=self.mutation_strength)
                 mutation_count += 1
+
+            # Only add if any mutation occurred
+            if current_tree is not tree:
+                trees_to_add.append(current_tree)
+
+        self.additional_population.extend(trees_to_add)
         return mutation_count
 
     def train(self, iterations: int):

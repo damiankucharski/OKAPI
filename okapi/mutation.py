@@ -8,8 +8,40 @@ from okapi.node import MeanNode, OperatorNode, ValueNode
 from okapi.tree import Tree
 
 
+def mutate_parameters(tree: Tree, mutation_strength: float = 0.1, **kwargs):
+    """
+    Mutate parameters of all parametrized nodes in the tree.
+
+    Iterates over all operator nodes and calls mutate_params() on each.
+    When a tree is selected for parameter mutation, ALL parametrized nodes
+    are mutated (deterministic once selected). The only stochasticity is
+    the Gaussian noise applied within each node's mutate_params().
+
+    Args:
+        tree: The tree to mutate (modified in place after copy)
+        mutation_strength: Controls magnitude of parameter changes (passed to mutate_params)
+        **kwargs: Additional keyword arguments (ignored)
+
+    Returns:
+        A new Tree with mutated parameters
+    """
+    logger.debug(f"Applying parameter mutation with strength={mutation_strength}")
+    tree = tree.copy()
+
+    op_nodes = tree.nodes.get("op_nodes", [])
+    mutated_count = 0
+
+    for node in op_nodes:
+        if node.mutate_params(mutation_strength):
+            mutated_count += 1
+
+    logger.info(f"Parameter mutation complete: {mutated_count}/{len(op_nodes)} parametrized nodes mutated")
+    return tree
+
+
 def append_new_node_mutation(
-    tree: Tree, models: Sequence[Tensor], ids: None | Sequence[str | int] = None, allowed_ops: tuple[Type[OperatorNode], ...] = (MeanNode,), **kwargs
+    tree: Tree, models: Sequence[Tensor], ids: None | Sequence[str | int] = None, allowed_ops: tuple[Type[OperatorNode], ...] = (MeanNode,),
+    max_depth: int | None = None, max_nodes: int | None = None, **kwargs
 ):
     """
     Mutation that adds a new node to the tree.
@@ -24,10 +56,16 @@ def append_new_node_mutation(
         models: Sequence of tensor models that can be used as values for the new ValueNode
         ids: Optional sequence of identifiers for the models. If None, indices will be used
         allowed_ops: Tuple of OperatorNode types that can be used when creating a new operator node
+        max_depth: Optional hard depth cap. When set (with max_nodes), the attachment point is
+            drawn only from ``tree.legal_append_targets`` so the result never exceeds the caps -
+            deterministic legal selection rather than generate-and-reject. ``None`` (uncapped)
+            keeps the historical uniform ``get_random_node`` draw exactly.
+        max_nodes: Optional hard node-count cap (see max_depth).
         **kwargs: Additional keyword arguments (ignored)
 
     Returns:
-        A new Tree with the mutation applied
+        A new Tree with the mutation applied (or, only under a cap that forbids every
+        attachment point, the unchanged copy).
     """
     logger.debug("Applying append_new_node_mutation")
     tree = tree.copy()
@@ -41,8 +79,15 @@ def append_new_node_mutation(
 
     idx_model = np.random.randint(len(ids))
     logger.debug(f"Selected model ID: {ids[idx_model]}")
-    node = tree.get_random_node()
-    logger.debug(f"Selected random node for mutation: {node}")
+    if max_depth is None and max_nodes is None:
+        node = tree.get_random_node()  # uncapped: historical uniform draw, unchanged
+    else:
+        targets = tree.legal_append_targets(max_depth=max_depth, max_nodes=max_nodes)
+        if not targets:
+            logger.trace("No cap-legal append target available; returning tree unchanged")
+            return tree
+        node = targets[np.random.randint(len(targets))]
+    logger.debug(f"Selected node for mutation: {node}")
 
     val_node: ValueNode = ValueNode([], models[idx_model], ids[idx_model])
     logger.trace(f"Created new value node with ID: {ids[idx_model]}")
@@ -129,7 +174,7 @@ def new_tree_from_branch_mutation(tree: Tree, **kwargs):
     return new_tree
 
 
-def get_allowed_mutations(tree):
+def get_allowed_mutations(tree, max_depth: int | None = None, max_nodes: int | None = None):
     """
     Determines which mutation operations are valid for a given tree.
 
@@ -138,14 +183,23 @@ def get_allowed_mutations(tree):
 
     Args:
         tree: The tree to analyze
+        max_depth: Optional hard cap on tree depth.
+        max_nodes: Optional hard cap on node count.
+
+        Both caps are honoured *exactly* via ``tree.legal_append_targets``:
+        ``append_new_node_mutation`` is offered iff at least one attachment point keeps the
+        result within both caps. A depth cap does not forbid append outright -- append can
+        still grow a tree *wider* by attaching to a shallow node (which is how compact
+        wide trees form at e.g. ``max_depth=3``); it is excluded only when *every* point
+        would overflow. The two shrinking mutations are always depth/size-safe.
 
     Returns:
         A list of mutation functions that are valid for the given tree
     """
     logger.debug(f"Determining allowed mutations for tree with {tree.nodes_count} nodes")
-    allowed_mutations: list[Callable] = [
-        append_new_node_mutation,
-    ]
+    allowed_mutations: list[Callable] = []
+    if tree.legal_append_targets(max_depth=max_depth, max_nodes=max_nodes):
+        allowed_mutations.append(append_new_node_mutation)
 
     if tree.nodes_count >= 3:
         logger.trace("Tree is large enough for lose_branch_mutation")

@@ -45,7 +45,7 @@ class PyTorchBackend(BackendInterface):
 
     @staticmethod
     def to_numpy(x):
-        return x.detach().numpy()
+        return x.detach().cpu().numpy()
 
     @staticmethod
     def clip(x, min, max):
@@ -54,6 +54,10 @@ class PyTorchBackend(BackendInterface):
     @staticmethod
     def log(x):
         return torch.log(x)
+
+    @staticmethod
+    def exp(x):
+        return torch.exp(x)
 
     @staticmethod
     def to_float(x):
@@ -97,3 +101,15 @@ class PyTorchBackend(BackendInterface):
         if device_ref is not None:
             return torch.arange(n, device=device_ref.device)
         return torch.arange(n)
+
+    @staticmethod
+    def minimum(a, b):
+        return torch.minimum(a, b)
+
+    @staticmethod
+    def maximum(a, b):
+        return torch.maximum(a, b)
+
+    @staticmethod
+    def no_grad():
+        return torch.no_grad()

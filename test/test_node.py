@@ -482,3 +482,114 @@ def test_check_both_value(type_1, type_2, expected):
 )
 def test_check_both_operators(type_1, type_2, expected):
     assert check_if_both_types_operators(type_1, type_2) == expected
+
+
+# ==================== Node Code Property Tests (for duplicate detection) ====================
+
+
+class TestNodeCodeForDuplicateDetection:
+    """Tests for node code property used in duplicate detection."""
+
+    def test_weighted_mean_node_code_includes_weights(self):
+        """WeightedMeanNode.code should include weight values."""
+        a = np.array([[1, 1], [2, 2]])
+        child = ValueNode(None, a, "model1")
+        wmn = WeightedMeanNode([child], weights=[0.7, 0.3])
+
+        code = wmn.code
+
+        assert "WMN[" in code
+        assert "0.7" in code
+        assert "0.3" in code
+
+    def test_weighted_mean_nodes_with_different_weights_have_different_codes(self):
+        """Two WeightedMeanNodes with different weights should have different codes."""
+        a = np.array([[1, 1], [2, 2]])
+        child1 = ValueNode(None, a, "model1")
+        child2 = ValueNode(None, a, "model2")
+
+        wmn1 = WeightedMeanNode([child1], weights=[0.6, 0.4])
+        wmn2 = WeightedMeanNode([child2], weights=[0.8, 0.2])
+
+        assert wmn1.code != wmn2.code
+
+    def test_weighted_mean_nodes_with_same_weights_have_same_codes(self):
+        """Two WeightedMeanNodes with same weights (rounded to 1 decimal) should have same codes."""
+        a = np.array([[1, 1], [2, 2]])
+        child1 = ValueNode(None, a, "model1")
+        child2 = ValueNode(None, a, "model2")
+
+        wmn1 = WeightedMeanNode([child1], weights=[0.6, 0.4])
+        wmn2 = WeightedMeanNode([child2], weights=[0.61, 0.39])  # Different but round to same
+
+        assert wmn1.code == wmn2.code  # Both should be WMN[0.6,0.4]
+
+    def test_threshold_node_code_includes_threshold(self):
+        """ThresholdNode.code should include threshold value."""
+        a = np.array([[1, 1], [2, 2]])
+        child = ValueNode(None, a, "model1")
+        thn = CloseThresholdNode([child], threshold=0.35)
+
+        code = thn.code
+
+        assert "THCLOSE[" in code
+        assert "0.3" in code  # Rounds to 0.3
+
+    def test_threshold_nodes_with_different_thresholds_have_different_codes(self):
+        """Two ThresholdNodes with different thresholds should have different codes."""
+        a = np.array([[1, 1], [2, 2]])
+        child1 = ValueNode(None, a, "model1")
+        child2 = ValueNode(None, a, "model2")
+
+        thn1 = CloseThresholdNode([child1], threshold=0.3)
+        thn2 = CloseThresholdNode([child2], threshold=0.7)
+
+        assert thn1.code != thn2.code
+
+    def test_threshold_nodes_with_same_threshold_have_same_codes(self):
+        """Two ThresholdNodes with same threshold (rounded to 1 decimal) should have same codes."""
+        a = np.array([[1, 1], [2, 2]])
+        child1 = ValueNode(None, a, "model1")
+        child2 = ValueNode(None, a, "model2")
+
+        thn1 = CloseThresholdNode([child1], threshold=0.5)
+        thn2 = CloseThresholdNode([child2], threshold=0.51)  # Different but round to same
+
+        assert thn1.code == thn2.code  # Both should be THCLOSE[0.5]
+
+    def test_close_vs_far_threshold_have_different_codes(self):
+        """CloseThresholdNode and FarThresholdNode with same threshold should have different codes."""
+        a = np.array([[1, 1], [2, 2]])
+        child1 = ValueNode(None, a, "model1")
+        child2 = ValueNode(None, a, "model2")
+
+        close = CloseThresholdNode([child1], threshold=0.5)
+        far = FarThresholdNode([child2], threshold=0.5)
+
+        assert close.code != far.code
+        assert "THCLOSE" in close.code
+        assert "THFAR" in far.code
+
+    def test_mean_node_code_unchanged(self):
+        """MeanNode code should remain simple (no parameters)."""
+        a = np.array([[1, 1], [2, 2]])
+        child = ValueNode(None, a, "model1")
+        mn = MeanNode([child])
+
+        assert mn.code == "MN"
+
+    def test_max_node_code_unchanged(self):
+        """MaxNode code should remain simple (no parameters)."""
+        a = np.array([[1, 1], [2, 2]])
+        child = ValueNode(None, a, "model1")
+        node = MaxNode([child])
+
+        assert node.code == "MAX"
+
+    def test_min_node_code_unchanged(self):
+        """MinNode code should remain simple (no parameters)."""
+        a = np.array([[1, 1], [2, 2]])
+        child = ValueNode(None, a, "model1")
+        node = MinNode([child])
+
+        assert node.code == "MIN"
