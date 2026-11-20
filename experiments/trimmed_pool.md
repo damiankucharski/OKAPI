@@ -36,9 +36,9 @@ Each rule consumed seven predictions per test item. The fixed tree experiment
 used zero GP generations and zero local refinement steps.
 
 Each bank fit six logistic stackers using the same 512 unique labels and made
-six Brier passes over the same 256 validation labels (3,072 training and 1,536
-validation example visits across configurations, excluding repeated solver
-iterations). Training took 14.49 ms and validation 2.76 ms per bank on
+six Brier passes over the same 256 validation labels (3,072 rows supplied to
+fit calls and 1,536 validation predictions across configurations). Training
+took 14.49 ms and validation 2.76 ms per bank on
 average. The six optimizations used 50.81 solver iterations in total per bank
 on average. Clean validation chose logit features in 12 banks and raw
 probabilities in four. Across all 80 batches of 4,096 test items, average
@@ -59,7 +59,7 @@ The reported scores concern a fixed seven-provider binary tree.
 
 Install the companion FusionBench research branch at commit
 `329c565959d7fde4010e491629fbd928626db258`, or add its checkout to
-`PYTHONPATH`. Run from the OKAPI checkout:
+`PYTHONPATH`. Run the experiment from the OKAPI checkout.
 
 ```sh
 export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OKAPI_LOG_LEVEL=ERROR
@@ -67,7 +67,8 @@ python -m experiments.trimmed_pool --out /tmp/trimmed_pool
 ```
 
 The recorded environment used Python 3.12.14, NumPy 2.3.5, SciPy 1.17.0 and
-scikit-learn 1.8.0. The predeclared seed banks are 2300–2315.
+scikit-learn 1.8.0. The predeclared seed banks are 2300–2315. A full replay
+reproduced every field other than timing in all 436 result records.
 
 [Protocol recorded before measurement](trimmed_pool_protocol.md) ·
 [Measurements by bank](results/trimmed_pool_measurements.csv) ·
