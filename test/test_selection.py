@@ -39,3 +39,14 @@ def test_validation_predicts_on_group_tensors_without_modifying_training_state()
 def test_reject_invalid_evidence(scores, sizes):
     with pytest.raises(ValueError):
         select_compact(scores, sizes)
+
+
+def test_unlabelled_context_weight_and_unidentified_fallback():
+    from okapi.selection import estimate_context_prevalence
+
+    reference = np.array([[0., 1.], [0., 1.]])
+    changed = 1 - reference
+    np.testing.assert_allclose(estimate_context_prevalence([.4, .6], reference, changed, .1), .4)
+    assert estimate_context_prevalence([2, -1], reference, changed, .1) == 1
+    assert estimate_context_prevalence([.5, .5], reference, reference, .1) == .1
+    assert estimate_context_prevalence([.5, .5], reference[:0], changed, .1) == .1

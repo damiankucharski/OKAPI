@@ -24,3 +24,7 @@ On TwoPathways, an exhaustive search over 81 OKAPI programs used a separate set 
 The audit compares a single seeded GP trajectory with the same run interleaved with another optimizer and unrelated NumPy draws. Eight generation fingerprints include the population, fitness and predictions. The saved before/after files use the same explicitly ordered model inputs. Ordinary single-run reproducibility and variation between different valid GP seeds are separate properties. The standard benchmark for the latter is in the companion FusionBench branch.
 
 [Measured outputs](results/) · [FusionBench research branch](https://github.com/damiankucharski/fusionbench/tree/research/ensemble-mechanisms-stability)
+
+## Selecting a tree when the mix of operating conditions changes
+
+If the source validation set identifies two operating conditions, estimate the mean loss of each candidate tree separately in each. The function `okapi.selection.estimate_context_prevalence` accepts the mean of unlabeled target features and the two source feature matrices. The FusionBench experiment uses pairwise disagreements among base experts. With an estimated changed-context frequency `p`, rank the trees by `(1-p) * reference_loss + p * changed_loss`. This requires stable within-context feature and outcome laws and distinguishable context feature means. The measured benefit and the cost under an unchanged distribution are recorded in the companion seed-selection study.
