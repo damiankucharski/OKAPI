@@ -80,6 +80,10 @@ test_brier = [
 
 Full API documentation: [https://damiankucharski.github.io/OKAPI/](https://damiankucharski.github.io/OKAPI/)
 
+## Algorithm research
+
+The [algorithm lab](experiments/algorithm-lab.md) records opt-in changes, comparison budgets and measured generalization across independent data draws.
+
 ## Paper
 
 OKAPI: Automated Ensemble Design Through Genetic Programming
