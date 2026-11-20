@@ -311,6 +311,52 @@ class MeanNode(OperatorNode):
         return MeanNode(children)
 
 
+class TrimmedMeanNode(OperatorNode):
+    """Drop one minimum and maximum per coordinate, then average the rest.
+
+    The parent is one of the inputs. With fewer than three inputs this returns
+    their arithmetic mean. Multiclass probabilities can use the usual tree
+    postprocessor to restore unit row sums after coordinatewise trimming.
+    """
+
+    @staticmethod
+    def _reduce(inputs, count):
+        if count < 1:
+            raise ValueError("Trimmed mean requires at least one input")
+        if count < 3:
+            return sum(inputs) / count
+
+        first, second = next(inputs), next(inputs)
+        low, high = B.minimum(first, second), B.maximum(first, second)
+        del first, second
+        middle_sum = None
+        for value in inputs:
+            # Of (low, value, high), the median joins the retained values and
+            # the other two become the new extrema. Summing only retained
+            # values preserves small probabilities next to a much larger tail.
+            middle = B.minimum(high, B.maximum(low, value))
+            middle_sum = middle if middle_sum is None else middle_sum + middle
+            low, high = B.minimum(low, value), B.maximum(high, value)
+        return middle_sum / (count - 2)
+
+    def op(self, x):
+        return self._reduce(iter(x), B.shape(x)[0])
+
+    def calculate(self):
+        return PF(self._reduce(self._stream_inputs(), len(self.children) + 1))
+
+    @staticmethod
+    def create_node(children):
+        return TrimmedMeanNode(children)
+
+    def copy(self):
+        return TrimmedMeanNode(None)
+
+    @property
+    def code(self) -> str:
+        return "TRIM1"
+
+
 class LogitMeanNode(OperatorNode):
     """Mean in logit space with a learnable temperature and shift.
 
