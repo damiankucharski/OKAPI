@@ -80,19 +80,33 @@ def estimate_context_prevalence(target_mean, reference_features, changed_feature
     Return the source prevalence if a context is absent or unidentifiable.
     """
     target = np.asarray(target_mean, dtype=float)
+    if target.ndim != 1:
+        raise ValueError("expected a single target feature vector")
+    return float(estimate_context_prevalences(target[None, :], reference_features,
+                                              changed_features, fallback)[0])
+
+
+def estimate_context_prevalences(target_means, reference_features, changed_features, fallback):
+    """Project many target means against shared source contexts in one operation.
+
+    The last axis indexes features. Leading axes can index deployment batches or
+    separate instruments measuring the same features. Each instrument obtains a
+    separate estimate; the caller can inspect disagreement before aggregation.
+    """
+    target = np.asarray(target_means, dtype=float)
     a = np.asarray(reference_features, dtype=float)
     b = np.asarray(changed_features, dtype=float)
-    if target.ndim != 1 or target.size == 0 or a.ndim != 2 or b.ndim != 2:
-        raise ValueError("expected a target mean vector and two source matrices")
-    if a.shape[1:] != target.shape or b.shape[1:] != target.shape:
+    if target.ndim < 2 or target.shape[-1] == 0 or a.ndim != 2 or b.ndim != 2:
+        raise ValueError("expected target feature vectors and two source matrices")
+    if a.shape[1:] != target.shape[-1:] or b.shape[1:] != target.shape[-1:]:
         raise ValueError("source and target features must have the same dimension")
     if not all(np.isfinite(x).all() for x in (target, a, b)) or not 0 <= fallback <= 1:
         raise ValueError("supply finite feature values and a fallback probability")
     if min(len(a), len(b)) == 0:
-        return float(fallback)
+        return np.full(target.shape[:-1], float(fallback))
     origin = a.mean(axis=0)
     direction = b.mean(axis=0) - origin
     norm_squared = direction @ direction
     if norm_squared < 1e-12:
-        return float(fallback)
-    return float(np.clip((target - origin) @ direction / norm_squared, 0.0, 1.0))
+        return np.full(target.shape[:-1], float(fallback))
+    return np.clip((target - origin) @ direction / norm_squared, 0., 1.)
