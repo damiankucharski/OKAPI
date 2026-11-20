@@ -23,6 +23,8 @@ pip install -e .
 ## Usage
 
 ```python
+from pathlib import Path
+
 import numpy as np
 
 from okapi import Okapi
@@ -35,14 +37,17 @@ from okapi.selection import select_tree
 def brier(scores, labels):
     return np.mean((scores - labels) ** 2)
 
+# A prediction directory contains one .npy per provider.
+providers = sorted(Path("path/to/fit/predictions").glob("*.npy"))
+population_size = min(100, len(providers))
 candidates = []
 for seed in (11, 22, 33):
     ensemble = Okapi(
-        preds_source="path/to/fit/predictions/",
+        preds_source=providers,
         gt_path="path/to/fit/ground_truth.npy",
-        population_size=100,
+        population_size=population_size,
         population_multiplier=2,
-        tournament_size=5,
+        tournament_size=max(1, min(5, population_size // 2)),
         backend="numpy",
         seed=seed,
         objective_functions=(brier,),
