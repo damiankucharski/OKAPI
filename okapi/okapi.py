@@ -69,6 +69,7 @@ class Okapi:
         mutation_strength: float = 0.1,
         max_depth: int | None = None,
         max_nodes: int | None = None,
+        reuse_survivor_fitness: bool = False,
     ):
         """
         Initialize the Okapi evolutionary algorithm.
@@ -96,6 +97,12 @@ class Okapi:
             max_nodes: Optional hard cap on total node count. ``None`` (default) imposes no limit.
             Both caps are enforced at generation time (mutation + crossover), not merely at
             selection, so they also bound evaluation cost - see ``_within_caps``.
+            reuse_survivor_fitness: Reuse scores of unchanged parents during survival
+                selection. Enable for deterministic objectives and postprocessing on
+                fixed training data. Callers and callbacks that change a parent,
+                reorder the population, or change scoring inputs must invalidate
+                the scores by setting ``fitnesses = None`` before the next iteration.
+                Stateful or stochastic scoring should use the default of False.
         """
         if backend is not None:
             Backend.set_backend(backend)
@@ -111,6 +118,7 @@ class Okapi:
         self.seed = seed
         self.max_depth = max_depth
         self.max_nodes = max_nodes
+        self.reuse_survivor_fitness = reuse_survivor_fitness
 
         self.objective_functions = objective_functions
         self.objectives = objectives
@@ -217,11 +225,20 @@ class Okapi:
         assert self.fitnesses.shape[0] == len(self.population)
         logger.info(f"Applied {mutation_count} mutations")
 
-        joined_population = np.array(self.population + self.additional_population)  # maybe worth it to calculated fitnesses first?
+        joined_population = np.array(self.population + self.additional_population)
         codes = np.array([tree.__repr__() for tree in joined_population])
         mask = first_uniques_mask(codes)
         self.population = list(joined_population[mask])
-        self.fitnesses = self._calculate_fitnesses(self.population).round(3)
+        if getattr(self, "reuse_survivor_fitness", False):
+            # Parents precede offspring. Reuse only the exact parent rows kept by
+            # deduplication. A tree's printable code can round its parameters.
+            parent_count = len(self.fitnesses)
+            retained_scores = self.fitnesses[mask[:parent_count]]
+            new_trees = self.population[len(retained_scores):]
+            new_scores = self._calculate_fitnesses(new_trees).round(3)
+            self.fitnesses = np.concatenate((retained_scores, new_scores))
+        else:
+            self.fitnesses = self._calculate_fitnesses(self.population).round(3)
         assert self.fitnesses.shape[0] == len(self.population)
 
         logger.debug(f"Removed {len(joined_population) - sum(mask)} duplicate trees")

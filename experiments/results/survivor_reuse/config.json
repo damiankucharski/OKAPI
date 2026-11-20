@@ -1,0 +1,31 @@
+{
+  "scenarios": [
+    "two_pathways",
+    "correlated"
+  ],
+  "data_seeds": [
+    8200,
+    8201,
+    8202,
+    8203,
+    8204,
+    8205,
+    8206,
+    8207,
+    8208,
+    8209,
+    8210,
+    8211
+  ],
+  "search_seeds": [
+    53,
+    97
+  ],
+  "generations": 12,
+  "fit": 1024,
+  "validation": 256,
+  "test": 4096,
+  "shortlist": 6,
+  "python": "3.12.14",
+  "numpy": "2.3.5"
+}
