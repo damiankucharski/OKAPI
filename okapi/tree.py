@@ -1,13 +1,13 @@
 from pathlib import Path
 from typing import Tuple, cast
 
-import numpy as np
 from loguru import logger
 
 from okapi.globals import BACKEND as B
 from okapi.globals import DEVICE
 from okapi.lib_types import Tensor
 from okapi.node import Node, OperatorNode, ValueNode, check_if_both_types_same_node_variant
+from okapi.random_state import current_rng
 from okapi.utils import Pickle
 
 
@@ -399,11 +399,11 @@ class Tree:
                 nodes_type,
             ]
         else:
-            nodes_types = list(np.random.permutation(["op_nodes", "value_nodes"]))
+            nodes_types = list(current_rng().permutation(["op_nodes", "value_nodes"]))
 
         for nodes_type in nodes_types:
             assert nodes_type is not None, "Nodes type cannot be None"
-            order = np.random.permutation(len(self.nodes[nodes_type]))
+            order = current_rng().permutation(len(self.nodes[nodes_type]))
             for i in order:
                 node = self.nodes[nodes_type][i]
                 if (allow_leaves or node.children != []) and (allow_root or node != self.root):
@@ -418,7 +418,7 @@ class Tree:
         Returns:
             A list of unique IDs from all value nodes
         """
-        return list(set([node.id for node in self.nodes["value_nodes"]]))
+        return list(dict.fromkeys(node.id for node in self.nodes["value_nodes"]))
 
     @property
     def value_nodes(self):

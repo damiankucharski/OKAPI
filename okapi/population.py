@@ -6,6 +6,7 @@ from loguru import logger
 from okapi.lib_types import Tensor
 from okapi.node import ValueNode
 from okapi.pareto import minimize, paretoset, sort_by_optimal_point_proximity
+from okapi.random_state import current_rng
 from okapi.tree import Tree
 
 
@@ -31,7 +32,7 @@ def initialize_individuals(tensors_dict: Dict[str, Tensor], n: int, exclude_ids=
     logger.debug(f"Available tensors: {len(tensors_dict)}, excluded IDs: {len(exclude_ids)}")
 
     order = np.arange(len(tensors_dict))
-    np.random.shuffle(order)
+    current_rng().shuffle(order)
     logger.trace("Shuffled tensor order")
 
     ids_list = list(tensors_dict.keys())

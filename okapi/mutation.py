@@ -5,6 +5,7 @@ from loguru import logger
 
 from okapi.lib_types import Tensor
 from okapi.node import MeanNode, OperatorNode, ValueNode
+from okapi.random_state import current_rng
 from okapi.tree import Tree
 
 
@@ -77,7 +78,7 @@ def append_new_node_mutation(
         assert len(models) == len(ids)
         logger.trace(f"Using provided IDs, confirmed length match: {len(ids)}")
 
-    idx_model = np.random.randint(len(ids))
+    idx_model = current_rng().randint(len(ids))
     logger.debug(f"Selected model ID: {ids[idx_model]}")
     if max_depth is None and max_nodes is None:
         node = tree.get_random_node()  # uncapped: historical uniform draw, unchanged
@@ -86,14 +87,14 @@ def append_new_node_mutation(
         if not targets:
             logger.trace("No cap-legal append target available; returning tree unchanged")
             return tree
-        node = targets[np.random.randint(len(targets))]
+        node = targets[current_rng().randint(len(targets))]
     logger.debug(f"Selected node for mutation: {node}")
 
     val_node: ValueNode = ValueNode([], models[idx_model], ids[idx_model])
     logger.trace(f"Created new value node with ID: {ids[idx_model]}")
 
     if isinstance(node, ValueNode):
-        random_op: Type[OperatorNode] = np.random.choice(np.asarray(allowed_ops))
+        random_op: Type[OperatorNode] = current_rng().choice(np.asarray(allowed_ops))
         logger.debug(f"Selected random operator type: {random_op.__name__}")
         op_node: OperatorNode = random_op.create_node([val_node])
         logger.debug("Appending operator node with value node child after selected node")

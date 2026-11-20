@@ -1,6 +1,7 @@
 import numpy as np
 from loguru import logger
 
+from okapi.random_state import current_rng
 from okapi.tree import Tree
 from okapi.utils import _euclidean_distances
 
@@ -41,7 +42,7 @@ def tournament_selection_indexes(fitnesses: np.ndarray, tournament_size: int = 5
 
     selected: list | np.ndarray = []
     for _ in range(2):
-        candidates_idx = np.random.choice(np.arange(len(fitnesses)), size=(tournament_size,), replace=False)
+        candidates_idx = current_rng().choice(np.arange(len(fitnesses)), size=(tournament_size,), replace=False)
         candidates_fitnesses = fitnesses[candidates_idx]
         distances = _euclidean_distances(candidates_fitnesses, optimal_point)
         best_idx = np.argmin(distances)
@@ -113,7 +114,7 @@ def _legal_crossover_pair(tree1: Tree, tree2: Tree, nodes_type: str, max_depth, 
             legal.append((n1, n2))
     if not legal:
         return None
-    return legal[np.random.randint(len(legal))]
+    return legal[current_rng().randint(len(legal))]
 
 
 def crossover(tree1: Tree, tree2: Tree, node_type=None, max_depth=None, max_nodes=None):
@@ -165,12 +166,12 @@ def crossover(tree1: Tree, tree2: Tree, node_type=None, max_depth=None, max_node
 
     if max_depth is None and max_nodes is None:
         # Uncapped: original behaviour, byte-for-byte (uniform type then uniform node).
-        nodes_type = np.random.choice(allowable_node_types)
+        nodes_type = current_rng().choice(allowable_node_types)
         node1, node2 = tree1.get_random_node(nodes_type), tree2.get_random_node(nodes_type)
     else:
         # Capped: try the allowable type(s) in random order, take the first that has a
         # cap-legal pair. value_nodes always does (root x root), so this resolves.
-        np.random.shuffle(allowable_node_types)
+        current_rng().shuffle(allowable_node_types)
         node1 = node2 = None
         for nodes_type in allowable_node_types:
             pair = _legal_crossover_pair(tree1, tree2, nodes_type, max_depth, max_nodes)

@@ -23,24 +23,42 @@ pip install -e .
 ## Usage
 
 ```python
+import numpy as np
+
 from okapi import Okapi
+from okapi.pareto import minimize
+from okapi.selection import select_tree
 
-# Initialize with model predictions and ground truth
-ensemble = Okapi(
-    preds_source="path/to/predictions/",
-    gt_path="path/to/ground_truth.npy",
-    population_size=100,
-    population_multiplier=2,
-    tournament_size=5,
-    backend="numpy"
-)
+# Each entry in validation_groups / test_groups is (predictions_by_id, labels).
+# IDs are fit filenames, including extensions. Here scores and labels have
+# matching shapes and represent the probability of the positive class / 0 or 1.
+def brier(scores, labels):
+    return np.mean((scores - labels) ** 2)
 
-# Run evolution
-ensemble.run(n_generations=50)
+candidates = []
+for seed in (11, 22, 33):
+    ensemble = Okapi(
+        preds_source="path/to/fit/predictions/",
+        gt_path="path/to/fit/ground_truth.npy",
+        population_size=100,
+        population_multiplier=2,
+        tournament_size=5,
+        backend="numpy",
+        seed=seed,
+        objective_functions=(brier,),
+        objectives=(minimize,),
+    )
+    ensemble.train(iterations=50)
+    candidates.extend(ensemble.pareto_trees)
 
-# Access best solution
-best_tree = ensemble.population[0]
-predictions = best_tree.root.value
+# Score all candidates on the same independent validation groups. The selector
+# favors small trees within one paired standard error of the best mean loss.
+selection = select_tree(candidates, validation_groups, brier)
+winner = candidates[selection.index]
+test_brier = [
+    brier(winner.do_pred_on_another_tensors(current_tensors=scores), labels)
+    for scores, labels in test_groups
+]
 ```
 
 ## Features

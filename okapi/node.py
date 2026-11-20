@@ -7,6 +7,7 @@ from loguru import logger
 from okapi.globals import BACKEND as B
 from okapi.globals import postprocessing_function as PF
 from okapi.lib_types import Tensor
+from okapi.random_state import current_rng
 
 T = TypeVar("T", bound="Node")
 
@@ -381,14 +382,14 @@ class LogitMeanNode(OperatorNode):
         return PF(result)
 
     def mutate_params(self, mutation_strength: float = 0.1) -> bool:
-        self.temperature = float(np.clip(self.temperature + np.random.normal(0, mutation_strength * 5.0), 0.05, 50.0))
-        self.shift = float(self.shift + np.random.normal(0, mutation_strength * 2.0))
+        self.temperature = float(np.clip(self.temperature + current_rng().normal(0, mutation_strength * 5.0), 0.05, 50.0))
+        self.shift = float(self.shift + current_rng().normal(0, mutation_strength * 2.0))
         return True
 
     @staticmethod
     def create_node(children):
-        t = float(np.exp(np.random.normal(0.0, 0.5)))  # lognormal around 1, strictly positive
-        s = float(np.random.normal(0.0, 0.3))
+        t = float(np.exp(current_rng().normal(0.0, 0.5)))  # lognormal around 1, strictly positive
+        s = float(current_rng().normal(0.0, 0.3))
         return LogitMeanNode(children, t, s)
 
 
@@ -438,7 +439,7 @@ class WeightedMeanNode(OperatorNode):
     def add_child(self, child_node: Node):
         logger.debug(f"Adding child to WeightedMeanNode with current weights: {self._weights}")
         assert isinstance(child_node, ValueNode)
-        child_weight = np.random.uniform(0, 1)
+        child_weight = current_rng().uniform(0, 1)
         adj = 1.0 - child_weight
 
         logger.trace(f"Generated child weight: {child_weight}, adjustment factor: {adj}")
@@ -498,16 +499,16 @@ class WeightedMeanNode(OperatorNode):
             weights = [1.0]
             logger.trace("No children, setting weight to [1.0]")
         elif len(children) == 1:
-            parent_weight = np.random.uniform(0, 1)
+            parent_weight = current_rng().uniform(0, 1)
             weights = [parent_weight, 1 - parent_weight]
             logger.trace(f"One child, weights: [{parent_weight}, {1 - parent_weight}]")
         else:
-            weights = [np.random.uniform(0, 1)]  # initial weight for parent
+            weights = [current_rng().uniform(0, 1)]  # initial weight for parent
             weight_left = 1 - weights[0]
             logger.trace(f"Multiple children, parent weight: {weights[0]}, remaining: {weight_left}")
 
             for i in range(len(children) - 1):
-                weights.append(np.random.uniform(0, weight_left))
+                weights.append(current_rng().uniform(0, weight_left))
                 weight_left -= weights[-1]
                 logger.trace(f"Child {i + 1} weight: {weights[-1]}, remaining: {weight_left}")
 
@@ -547,7 +548,7 @@ class WeightedMeanNode(OperatorNode):
         logger.trace(f"Original weights: {self._weights}")
 
         # Add Gaussian noise to each weight
-        noise = np.random.normal(0, mutation_strength, len(self._weights))
+        noise = current_rng().normal(0, mutation_strength, len(self._weights))
         new_weights = np.array(self._weights) + noise
 
         # Clip to ensure non-negative weights
@@ -648,7 +649,7 @@ class WeightedLogitMeanNode(OperatorNode):
         logger.debug(f"Adding child to WeightedLogitMeanNode with {len(self._weights)} weights")
         assert isinstance(child_node, ValueNode), "Child node of WLMN must be a ValueNode"
         # Free (unnormalised) weight: a new input enters near the logit-sum scale.
-        self._weights.append(float(np.exp(np.random.normal(0.0, 0.5))))
+        self._weights.append(float(np.exp(current_rng().normal(0.0, 0.5))))
         super().add_child(child_node)
         self._weight_length_assertion()
 
@@ -673,7 +674,7 @@ class WeightedLogitMeanNode(OperatorNode):
             assert actual_length == expected_length, "Length of weight array is different than number of adjacent nodes"
 
     def mutate_params(self, mutation_strength: float = 0.1) -> bool:
-        noise = np.random.normal(0, mutation_strength * 3.0, len(self._weights))
+        noise = current_rng().normal(0, mutation_strength * 3.0, len(self._weights))
         new_weights = np.clip(np.array(self._weights) + noise, 0.0, self._W_MAX)
         self._weights = new_weights.tolist()
         return True
@@ -681,7 +682,7 @@ class WeightedLogitMeanNode(OperatorNode):
     @staticmethod
     def create_node(children: Sequence[ValueNode]):
         n = len(children) + 1  # parent slot + one weight per child
-        weights = np.exp(np.random.normal(0.0, 0.5, size=n)).tolist()  # lognormal ~1, strictly positive
+        weights = np.exp(current_rng().normal(0.0, 0.5, size=n)).tolist()  # lognormal ~1, strictly positive
         return WeightedLogitMeanNode(children, weights)
 
 
@@ -865,7 +866,7 @@ class ThresholdNode(OperatorNode):
         logger.debug(f"Mutating ThresholdNode threshold with strength {mutation_strength}")
         logger.trace(f"Original threshold: {self.threshold}")
 
-        noise = np.random.normal(0, mutation_strength)
+        noise = current_rng().normal(0, mutation_strength)
         self.threshold = float(np.clip(self.threshold + noise, 0.0, 1.0))
 
         logger.trace(f"Mutated threshold: {self.threshold}")
@@ -889,7 +890,7 @@ class CloseThresholdNode(ThresholdNode):
 
     @staticmethod
     def create_node(children):
-        t = np.random.rand()
+        t = current_rng().rand()
         return CloseThresholdNode(children, t)
 
 
@@ -906,7 +907,7 @@ class FarThresholdNode(ThresholdNode):
 
     @staticmethod
     def create_node(children):
-        t = np.random.rand()
+        t = current_rng().rand()
         return FarThresholdNode(children, t)
 
 

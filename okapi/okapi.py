@@ -20,6 +20,7 @@ from okapi.node import OperatorNode
 from okapi.operators import CLOSE_THRESHOLD, FAR_THRESHOLD, MAX, MEAN, MIN, WEIGHTED_MEAN
 from okapi.pareto import _get_optimal_point_based_on_list_of_objective_functions, maximize
 from okapi.population import choose_pareto, choose_pareto_then_proximity, initialize_individuals
+from okapi.random_state import current_rng, use_rng
 from okapi.tree import Tree
 from okapi.utils import first_uniques_mask, mark_paths
 
@@ -63,7 +64,7 @@ class Okapi:
         allowed_ops: Sequence[Type[OperatorNode]] = (MEAN, MIN, MAX, WEIGHTED_MEAN, FAR_THRESHOLD, CLOSE_THRESHOLD),
         callbacks: Iterable[Callback] = tuple(),
         backend: Union[str, None] = None,
-        seed: int = 0,
+        seed: int | None = 0,
         postprocessing_function=None,
         mutation_strength: float = 0.1,
         max_depth: int | None = None,
@@ -84,7 +85,7 @@ class Okapi:
             allowed_ops: Sequence of operator node types that can be used in trees
             callbacks: Iterable of callback objects for monitoring/modifying evolution
             backend: Optional backend implementation for tensor operations
-            seed: Random seed for reproducibility
+            seed: Seed for the optimizer's independent random stream. None draws system entropy.
             postprocessing_function: Function applied after each Op Node.
             Most of the operations may break some data characteristics, for example vector summing to one. This can be used to fix that.
             mutation_strength: Controls magnitude of parameter mutations (default 0.1).
@@ -98,8 +99,7 @@ class Okapi:
         """
         if backend is not None:
             Backend.set_backend(backend)
-        if seed is not None:
-            np.random.seed(seed)
+        self.rng = np.random.RandomState(seed)
         if postprocessing_function:
             set_postprocessing_function(postprocessing_function)
 
@@ -127,7 +127,8 @@ class Okapi:
         # state
         self.should_stop = False
 
-        self.population = self._initialize_population()
+        with use_rng(self.rng):
+            self.population = self._initialize_population()
         self.additional_population: List[Tree] = []  # for potential callbacks
         self.fitnesses: None | npt.NDArray[np.float64] = None
 
@@ -138,8 +139,9 @@ class Okapi:
         Args:
             hook_name: Name of the hook to call
         """
-        for callback in self.callbacks:
-            getattr(callback, hook_name)(self)
+        with use_rng(self.rng):
+            for callback in self.callbacks:
+                getattr(callback, hook_name)(self)
 
     def _initialize_population(self):
         """
@@ -194,6 +196,10 @@ class Okapi:
         3. Applies mutations to some of the new trees
         4. Removes duplicate trees from the population
         """
+        with use_rng(self.rng):
+            self._run_iteration()
+
+    def _run_iteration(self):
         logger.info("Starting evolution iteration")
         if self.fitnesses is None:
             self.fitnesses = self._calculate_fitnesses(self.population).round(
@@ -266,10 +272,10 @@ class Okapi:
             current_tree = tree
 
             # Structural mutation
-            if np.random.rand() < tree.mutation_chance:
+            if current_rng().rand() < tree.mutation_chance:
                 allowed_mutations = get_allowed_mutations(tree, max_depth=self.max_depth, max_nodes=self.max_nodes)
                 if allowed_mutations:
-                    chosen_mutation = np.random.choice(np.array(allowed_mutations))
+                    chosen_mutation = current_rng().choice(np.array(allowed_mutations))
                     logger.trace(f"Applying structural mutation: {chosen_mutation.__name__}")
                     mutated = chosen_mutation(
                         tree,
@@ -287,7 +293,7 @@ class Okapi:
                     mutation_count += 1
 
             # Parameter mutation (applied to structurally mutated tree if any, else original)
-            if np.random.rand() < tree.mutation_chance:
+            if current_rng().rand() < tree.mutation_chance:
                 logger.trace("Applying parameter mutation")
                 current_tree = mutate_parameters(current_tree, mutation_strength=self.mutation_strength)
                 mutation_count += 1
@@ -339,14 +345,15 @@ class Okapi:
             preds_source = Path(preds_source)
         if isinstance(preds_source, Path):
             logger.debug(f"Scanning directory for tensors: {preds_source}")
-            tensor_paths = list(preds_source.glob("*"))
+            tensor_paths = sorted(preds_source.glob("*"))
         elif hasattr(preds_source, "__iter__"):
+            preds_source = list(preds_source)
             marked_paths, all_same = mark_paths(preds_source)
             if all_same:
                 if marked_paths[0] == "dir":
                     for pred_source in preds_source:
                         pred_source = Path(pred_source)
-                        tensor_paths += list(pred_source.glob("*"))
+                        tensor_paths += sorted(pred_source.glob("*"))
                 elif marked_paths[0] == "file":
                     tensor_paths = list(preds_source)
             else:
@@ -372,7 +379,7 @@ class Okapi:
             gt_path = Path(gt_path)
         if isinstance(gt_path, Path):
             if os.path.isdir(gt_path):
-                for path in gt_path.glob("*"):
+                for path in sorted(gt_path.glob("*")):
                     if gt_tensor is None:
                         gt_tensor = B.load(path)
                     else:
