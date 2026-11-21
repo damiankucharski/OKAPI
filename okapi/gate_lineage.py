@@ -1,10 +1,12 @@
 """Track the inheritance of individual native threshold gates during tree evolution."""
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from numbers import Integral
 
 from okapi.interventions import Path, operator_paths
 from okapi.node import CloseThresholdNode, FarThresholdNode, ThresholdNode
+from okapi.threshold_refinement import _threshold
 from okapi.tree import Tree
 
 _GATE_TYPES = (ThresholdNode, CloseThresholdNode, FarThresholdNode)
@@ -25,6 +27,16 @@ def _token_string(token):
     return str.__str__(token)
 
 
+def _gate_at(gates_by_path, gate_path):
+    path = tuple(gate_path)
+    if any(not isinstance(i, Integral) or isinstance(i, bool) or i < 0 for i in path):
+        raise ValueError("gate_path must contain nonnegative integer child indices")
+    gate = gates_by_path.get(path)
+    if type(gate) not in _GATE_TYPES:
+        raise ValueError("gate_path must identify a built-in threshold gate")
+    return gate
+
+
 def mark_gate_origin(tree: Tree, gate_path: Path, *, token: str) -> Tree:
     """Return a private copy with one origin token set on the native gate at gate_path.
 
@@ -34,12 +46,7 @@ def mark_gate_origin(tree: Tree, gate_path: Path, *, token: str) -> Tree:
     Marking consumes no random draws and leaves predictions and structural keys intact.
     """
     token = _token_string(token)
-    path = tuple(gate_path)
-    if any(not isinstance(i, Integral) or isinstance(i, bool) or i < 0 for i in path):
-        raise ValueError("gate_path must contain nonnegative integer child indices")
-    gate = dict(operator_paths(tree)).get(path)
-    if type(gate) not in _GATE_TYPES:
-        raise ValueError("gate_path must identify a built-in threshold gate")
+    gate = _gate_at(dict(operator_paths(tree)), gate_path)
 
     marked = tree.copy()
     marked.mutation_chance = tree.mutation_chance
@@ -74,3 +81,19 @@ def gate_descendants(tree: Tree, *, token: str) -> tuple[GateOccurrence, ...]:
                 (gate.parent.id, *(child.id for child in gate.children)),
             ))
     return tuple(occurrences)
+
+
+def tree_with_gate_cutoff(tree: Tree, paths: Iterable[Path], *, threshold: float = 0.5) -> Tree:
+    """Return a private prediction tree with one common cutoff at the requested gates.
+
+    Each path addresses an occurrence in the intact tree. Operands, operation order,
+    postprocessing and lineage are preserved, including for nested and multi-input
+    gates. This frozen-model intervention uses no labels, predictions or RNG draws.
+    """
+    cutoff = _threshold(threshold, "Replacement cutoff")
+    candidate = tree.copy()
+    candidate.mutation_chance = tree.mutation_chance
+    gates = dict(operator_paths(candidate))
+    for path in paths:
+        _gate_at(gates, path).threshold = cutoff
+    return candidate

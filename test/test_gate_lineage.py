@@ -5,7 +5,7 @@ from okapi import Okapi
 from okapi.backend.backend import Backend
 from okapi.backend.numpy_backend import NumpyBackend
 from okapi.crossover import crossover
-from okapi.gate_lineage import gate_descendants, mark_gate_origin
+from okapi.gate_lineage import gate_descendants, mark_gate_origin, tree_with_gate_cutoff
 from okapi.globals import postprocessing_function
 from okapi.interventions import tree_with_bypass
 from okapi.mutation import mutate_parameters
@@ -192,3 +192,56 @@ def test_invalid_tokens_paths_and_custom_threshold_subclasses_are_rejected():
                        (Tree(ValueNode([MeanNode([leaf("b")])], np.array([.1]), "a")), (0,))):
         with pytest.raises(ValueError):
             mark_gate_origin(tree, path, token="source")
+
+
+def test_joint_cutoff_reset_preserves_evolved_operands_and_order(monkeypatch):
+    # Two nested three-input gates, then one unrelated ordered update.
+    def build(values, name, ops=None):
+        return ValueNode(ops, np.array(values, dtype=float), name)
+
+    inputs = [[.1, .7, .3], [.3, .9, .4], [.8, .3, .6], [.7, .2, .9], [.4, .7, .1], [.7, .1, .9]]
+    a, b, c, d, e, f = inputs
+    inner = CloseThresholdNode([build(c, "c"), build(d, "d")], .2)
+    outer = FarThresholdNode([build(b, "b", [inner]), build(e, "e")], .8)
+    tree = Tree(build(a, "a", [outer, MeanNode([build(f, "f")])]), mutation_chance=.71)
+    tree = mark_gate_origin(tree, (0,), token="persisted")
+    tree = mark_gate_origin(tree, (0, 0, 0), token="persisted")
+    before_key = tree.structural_key()
+    monkeypatch.setattr(postprocessing_function, "_postprocessing_function", lambda x: x * .9)
+    cached = tree.evaluation
+    paths = [hit.path for hit in gate_descendants(tree, token="persisted")]
+    reset = tree_with_gate_cutoff(tree, iter([*paths, paths[0]]))
+    assert [hit.threshold for hit in gate_descendants(reset, token="persisted")] == [.5, .5]
+    assert [hit.threshold for hit in gate_descendants(tree, token="persisted")] == [.8, .2]
+    assert tree.evaluation is cached and tree.structural_key() == before_key
+    assert reset.nodes_count == tree.nodes_count and reset.mutation_chance == tree.mutation_chance
+
+    def select(scores, close):
+        matrix = np.stack(scores)
+        selector = np.argmin if close else np.argmax
+        row = selector((matrix - .5) ** 2, axis=0)
+        return .9 * matrix[row, np.arange(matrix.shape[1])]
+
+    expected_inner = select([b, c, d], True)
+    expected_outer = select([a, expected_inner, e], False)
+    expected = .9 * (expected_outer + np.asarray(f)) / 2
+    np.testing.assert_allclose(reset.predict(), expected)
+    assert not np.allclose(cached, expected)
+    no_hit = tree_with_gate_cutoff(tree, [])
+    assert no_hit is not tree and no_hit.structural_key() == before_key
+    np.testing.assert_array_equal(no_hit.predict(), cached)
+
+
+@pytest.mark.parametrize("value", [-.1, 1.1, np.nan, np.inf, True, [.5], "0.5"])
+def test_joint_cutoff_rejects_invalid_scalars(value):
+    with pytest.raises(ValueError, match="cutoff"):
+        tree_with_gate_cutoff(gate_tree(), [(0,)], threshold=value)
+
+
+@pytest.mark.parametrize("path", [(), (8,), (0, 0), (-1,), (False,)])
+def test_joint_cutoff_rejects_invalid_gate_paths(path):
+    source = gate_tree()
+    key = source.structural_key()
+    with pytest.raises(ValueError, match="gate_path"):
+        tree_with_gate_cutoff(source, [(0,), path], threshold=0)
+    assert source.structural_key() == key
