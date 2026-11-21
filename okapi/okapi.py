@@ -22,7 +22,18 @@ from okapi.pareto import _get_optimal_point_based_on_list_of_objective_functions
 from okapi.population import choose_pareto, choose_pareto_then_proximity, initialize_individuals
 from okapi.random_state import current_rng, use_rng
 from okapi.tree import Tree
-from okapi.utils import first_uniques_mask, mark_paths
+from okapi.utils import mark_paths
+
+
+def _unique_tree_mask(trees):
+    """Keep the first occurrence of each exact built-in tree program."""
+    seen = set()
+    mask = []
+    for tree in trees:
+        key = tree.structural_key()
+        mask.append(key not in seen)
+        seen.add(key)
+    return mask
 
 
 class Okapi:
@@ -226,12 +237,11 @@ class Okapi:
         logger.info(f"Applied {mutation_count} mutations")
 
         joined_population = np.array(self.population + self.additional_population)
-        codes = np.array([tree.__repr__() for tree in joined_population])
-        mask = first_uniques_mask(codes)
+        mask = _unique_tree_mask(joined_population)
         self.population = list(joined_population[mask])
         if getattr(self, "reuse_survivor_fitness", False):
             # Parents precede offspring. Reuse only the exact parent rows kept by
-            # deduplication. A tree's printable code can round its parameters.
+            # deduplication.
             parent_count = len(self.fitnesses)
             retained_scores = self.fitnesses[mask[:parent_count]]
             new_trees = self.population[len(retained_scores):]

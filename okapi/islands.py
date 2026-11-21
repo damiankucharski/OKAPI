@@ -41,8 +41,8 @@ def _rejection(elite: Tree, receiver: Okapi) -> str | None:
         return "operator"
     if any(node.id not in receiver.train_tensors for node in elite.value_nodes):
         return "provider"
-    code = repr(elite)
-    if any(repr(resident) == code for resident in receiver.population):
+    key = elite.structural_key()
+    if any(resident.structural_key() == key for resident in receiver.population):
         return "duplicate"
     return None
 

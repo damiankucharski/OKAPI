@@ -6,7 +6,7 @@ from loguru import logger
 from okapi.globals import BACKEND as B
 from okapi.globals import DEVICE
 from okapi.lib_types import Tensor
-from okapi.node import Node, OperatorNode, ValueNode, check_if_both_types_same_node_variant
+from okapi.node import Node, OperatorNode, ValueNode, _node_parameters, check_if_both_types_same_node_variant
 from okapi.random_state import current_rng
 from okapi.utils import Pickle
 
@@ -534,6 +534,24 @@ class Tree:
             f"Tree loaded successfully with {len(loaded.nodes['value_nodes'])} value nodes and {len(loaded.nodes['op_nodes'])} operator nodes"
         )
         return loaded, current_tensors
+
+    def structural_key(self) -> tuple:
+        """Immutable key for a prediction program under a common provider-ID mapping.
+
+        Ordered preorder records contain each concrete node type, its arity and
+        its exact parameters. Arity identifies the child boundaries even when
+        a value has several sequential operators. Rebinding provider tensors or
+        changing evaluation caches or the tree's mutation chance preserves the
+        key. Custom node types have opaque state and receive a fresh token each
+        time, so deduplication always retains their candidates.
+        """
+        records = []
+        pending = [self.root]
+        while pending:
+            node = pending.pop()
+            records.append((type(node), len(node.children), _node_parameters(node)))
+            pending.extend(reversed(node.children))
+        return tuple(records)
 
     def __repr__(self):
         """

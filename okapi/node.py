@@ -1,4 +1,5 @@
 import os
+from struct import pack
 from typing import List, Optional, Sequence, TypeVar, Union, cast
 
 import numpy as np
@@ -142,7 +143,7 @@ class Node:
     @property
     def code(self) -> str:
         """
-        Identifies node for duplicate handling.
+        Compact display label for the node.
 
         Returns:
         - Code string
@@ -529,7 +530,7 @@ class WeightedMeanNode(OperatorNode):
 
     @property
     def code(self) -> str:
-        # Include weights in code for proper duplicate detection
+        # Keep the historical rounded display label.
         weights_str = ",".join(f"{w:.1f}" for w in self._weights)
         return f"WMN[{weights_str}]"
 
@@ -850,7 +851,7 @@ class ThresholdNode(OperatorNode):
 
     @property
     def code(self) -> str:
-        # Include threshold in code for proper duplicate detection
+        # Keep the historical rounded display label.
         return f"TH{self.strclose}[{self.threshold:.1f}]".upper()
 
     def op(self, x):
@@ -955,6 +956,36 @@ class FarThresholdNode(ThresholdNode):
     def create_node(children):
         t = current_rng().rand()
         return FarThresholdNode(children, t)
+
+
+def _scalar_key(value):
+    """Snapshot supported parameter scalars without rounding or tensor conversion."""
+    if type(value) is float:
+        return float, pack(">d", value)
+    if type(value) in (str, int, bool):
+        return type(value), value
+    if isinstance(value, np.generic) and value.dtype.kind in "biufUS":
+        return type(value), value.dtype.str, value.tobytes()
+    # A custom scalar may depend on mutable or external state.
+    return (object(),)
+
+
+def _node_parameters(node):
+    """Return the prediction parameters of an exact built-in node type."""
+    kind = type(node)
+    if kind is ValueNode:
+        return (_scalar_key(node.id),)
+    if kind in (MeanNode, MinNode, MaxNode, TrimmedMeanNode):
+        return ()
+    if kind in (WeightedMeanNode, WeightedLogitMeanNode):
+        return tuple(_scalar_key(weight) for weight in node._weights)
+    if kind is LogitMeanNode:
+        return _scalar_key(node.temperature), _scalar_key(node.shift)
+    if kind in (ThresholdNode, CloseThresholdNode, FarThresholdNode):
+        return _scalar_key(node.threshold), _scalar_key(node.close)
+    # Subclasses may override calculate() or carry parameters unknown here.
+    # A fresh token makes deduplication conservative even after in-place edits.
+    return (object(),)
 
 
 def check_if_both_types_values(node1, node2):
