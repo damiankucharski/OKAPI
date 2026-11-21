@@ -24,6 +24,20 @@ def operator_paths(tree: Tree) -> Iterator[tuple[Path, OperatorNode]]:
     yield from visit(tree.root, ())
 
 
+def operator_at_path(tree: Tree, operator_path: Path) -> OperatorNode:
+    """Resolve an operator's child-index path in the current tree."""
+    node = tree.root
+    for step in operator_path:
+        if isinstance(step, (bool, np.bool_)) or not isinstance(step, (int, np.integer)) or step < 0:
+            raise ValueError("operator_path must contain nonnegative integer indices")
+        if step >= len(node.children):
+            raise ValueError("operator_path must identify an operator")
+        node = node.children[step]
+    if not isinstance(node, OperatorNode):
+        raise ValueError("operator_path must identify an operator")
+    return node
+
+
 def copy_for_variation(tree: Tree) -> Tree:
     """Copy a tree while preserving the index order used to sample genetic edits."""
     candidate = tree.copy()
@@ -45,18 +59,13 @@ def tree_with_operand_provider(
     value is excluded. All operations attached to the child and every other
     occurrence of its former ID retain their original position and parameters.
     """
-    path = tuple(operator_path)
-    if any(isinstance(step, (bool, np.bool_)) or not isinstance(step, (int, np.integer)) or step < 0 for step in path):
-        raise ValueError("operator_path must contain nonnegative integer indices")
     if isinstance(child_index, (bool, np.bool_)):
         raise TypeError("child_index must be an integer")
     slot = integer_index(child_index)
     if isinstance(provider_id, (bool, np.bool_)) or not isinstance(provider_id, (int, str, np.integer)):
         raise TypeError("provider_id must be an integer or string")
     candidate = copy_for_variation(tree)
-    operator = dict(operator_paths(candidate)).get(path)
-    if operator is None:
-        raise ValueError("operator_path must identify an operator")
+    operator = operator_at_path(candidate, operator_path)
     if not 0 <= slot < len(operator.children):
         raise ValueError("child_index must identify a direct operand")
     child = operator.children[slot]

@@ -3,6 +3,7 @@ from typing import Callable, Sequence, Type
 import numpy as np
 from loguru import logger
 
+from okapi.interventions import Path, copy_for_variation, operator_at_path
 from okapi.lib_types import Tensor
 from okapi.node import MeanNode, OperatorNode, ValueNode
 from okapi.random_state import current_rng
@@ -107,6 +108,53 @@ def append_new_node_mutation(
     return tree
 
 
+def _replaceable_slots(tree, allowed_ops):
+    return [
+        i for i, node in enumerate(tree.op_nodes)
+        if any(proposed is not type(node) for proposed in allowed_ops)
+    ]
+
+
+def _replace_operator(child: Tree, index: int, operator_type: Type[OperatorNode]) -> Tree:
+    previous = child.op_nodes[index]
+    if type(previous) is not operator_type:
+        new_node = operator_type.create_node(previous.children)
+        previous.parent.replace_child(previous, new_node)
+        child.op_nodes[index] = new_node
+    return child
+
+
+def tree_with_operator_type(tree: Tree, operator_path: Path, operator_type: Type[OperatorNode]) -> Tree:
+    """Copy a tree and set the operator type at a fixed child-index path.
+
+    Keeping the existing type preserves its parameters and consumes no RNG.
+    A different type initializes parameters using its factory and the active RNG.
+    """
+    if not isinstance(operator_type, type) or not issubclass(operator_type, OperatorNode):
+        raise TypeError("operator_type must be an OperatorNode class")
+    child = copy_for_variation(tree)
+    previous = operator_at_path(child, operator_path)
+    return _replace_operator(child, child.op_nodes.index(previous), operator_type)
+
+
+def replace_operator_mutation(tree: Tree, *, allowed_ops: Sequence[Type[OperatorNode]], **kwargs):
+    """Change one operator type, retaining the operand subtrees and their order.
+
+    Choose a compatible native palette for the data and operand counts. A new
+    operator uses its standard parameter initializer. A singleton or a tree
+    with no alternative operator type produces a copy without any random draw.
+    """
+    child = copy_for_variation(tree)
+    slots = _replaceable_slots(child, allowed_ops)
+    if not slots:
+        return child
+    index = slots[current_rng().randint(len(slots))]
+    previous = child.op_nodes[index]
+    alternatives = [cls for cls in dict.fromkeys(allowed_ops) if cls is not type(previous)]
+    operator = alternatives[current_rng().randint(len(alternatives))]
+    return _replace_operator(child, index, operator)
+
+
 def lose_branch_mutation(tree: Tree, **kwargs):
     """
     Mutation that removes a branch from the tree.
@@ -175,7 +223,10 @@ def new_tree_from_branch_mutation(tree: Tree, **kwargs):
     return new_tree
 
 
-def get_allowed_mutations(tree, max_depth: int | None = None, max_nodes: int | None = None):
+def get_allowed_mutations(
+    tree, max_depth: int | None = None, max_nodes: int | None = None,
+    *, point_mutation_ops: Sequence[Type[OperatorNode]] = (),
+):
     """
     Determines which mutation operations are valid for a given tree.
 
@@ -208,6 +259,9 @@ def get_allowed_mutations(tree, max_depth: int | None = None, max_nodes: int | N
     if len(tree.nodes["value_nodes"]) > 1:
         logger.trace("Tree has enough value nodes for new_tree_from_branch_mutation")
         allowed_mutations.append(new_tree_from_branch_mutation)
+
+    if len(point_mutation_ops) and _replaceable_slots(tree, point_mutation_ops):
+        allowed_mutations.append(replace_operator_mutation)
 
     logger.debug(f"Found {len(allowed_mutations)} allowed mutation types")
     return allowed_mutations

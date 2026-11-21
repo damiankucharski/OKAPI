@@ -6,6 +6,8 @@ Automated ensemble design through genetic programming for classification tasks.
 
 OKAPI evolves tree-based fusion structures that combine predictions from multiple machine learning models. It uses genetic programming with crossover and mutation operations to search for optimal ensemble configurations, balancing predictive performance with model complexity through Pareto optimization.
 
+To include point mutation in the ordinary evolutionary search, set `operator_point_mutation=True` on `Okapi`. It changes one existing operator to another from `allowed_ops`, keeping its position, providers and operand subtrees. The new operator uses its usual parameter initializer and competes through ordinary selection. The default is off. This is a single-site variant of function point mutation used by Langdon, Barrett and Buxton in GP ensembles. [Design precedent, section 5.5](https://doi.org/10.1007/978-1-4471-0123-9_51)
+
 ## Installation
 
 ```bash

@@ -81,6 +81,7 @@ class Okapi:
         max_depth: int | None = None,
         max_nodes: int | None = None,
         reuse_survivor_fitness: bool = False,
+        operator_point_mutation: bool = False,
     ):
         """
         Initialize the Okapi evolutionary algorithm.
@@ -100,6 +101,7 @@ class Okapi:
             seed: Seed for the optimizer's independent random stream. None draws system entropy.
             postprocessing_function: Function applied after each Op Node.
             Most of the operations may break some data characteristics, for example vector summing to one. This can be used to fix that.
+            operator_point_mutation: Allow changing one operator while keeping its inputs and position.
             mutation_strength: Controls magnitude of parameter mutations (default 0.1).
             Higher values cause larger parameter changes during evolution.
             max_depth: Optional hard cap on tree depth (levels; root = 1, a value->op->value
@@ -130,6 +132,7 @@ class Okapi:
         self.max_depth = max_depth
         self.max_nodes = max_nodes
         self.reuse_survivor_fitness = reuse_survivor_fitness
+        self.operator_point_mutation = operator_point_mutation
 
         self.objective_functions = objective_functions
         self.objectives = objectives
@@ -300,7 +303,10 @@ class Okapi:
 
             # Structural mutation
             if current_rng().rand() < tree.mutation_chance:
-                allowed_mutations = get_allowed_mutations(tree, max_depth=self.max_depth, max_nodes=self.max_nodes)
+                allowed_mutations = get_allowed_mutations(
+                    tree, max_depth=self.max_depth, max_nodes=self.max_nodes,
+                    point_mutation_ops=self.allowed_ops if getattr(self, "operator_point_mutation", False) else (),
+                )
                 if allowed_mutations:
                     chosen_mutation = current_rng().choice(np.array(allowed_mutations))
                     logger.trace(f"Applying structural mutation: {chosen_mutation.__name__}")
