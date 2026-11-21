@@ -7,3 +7,12 @@ A 100-generation fixture on three stock generators verified that point replaceme
 ## A cross-task prediction bug at the benchmark pin
 
 In FusionBench d00e1a8, training the multiclass model after a six-node binary committee model changed every one of the binary model's 192 previously scored predictions. The maximum class-probability change was .92349, and full Brier rose from .28049 to 1.08333. Restoring the binary identity postprocessor reproduced every original probability exactly. Both models used the same standard adapter with fixed seeds. The adapter sets the global native postprocessor during fitting; later prediction reads whichever setting is active. A shared process retaining binary and multiclass models needs to scope each prediction to its original task. The paired audit above sets the proper function for each model before comparing it. [Reproducer using two actual fitted models](postprocessing_witness.py)
+
+The native lab branch exposes a scoped postprocessor for applications with multiple trained models. Use the prediction function associated with the saved task at the point where the tree executes. Nested scopes, exceptions, threads and asynchronous tasks are covered by regression tests. Unscoped calls still use the established global setting. This isolates the postprocessing function; each caller must manage its own mutable prediction tree and backend. The benchmark reproducer confirms that switching just this function locally restores all 192 binary rows while leaving the outer setting available to the multiclass model. [Scoped OKAPI API](../../okapi/globals.py) · [Concurrency and exception tests](../../test/test_postprocessing_scope.py)
+
+```python
+from okapi.globals import use_postprocessing_function
+
+with use_postprocessing_function(model_postprocessor):
+    predictions = tree.do_pred_on_another_tensors(current_tensors=query_tensors)
+```

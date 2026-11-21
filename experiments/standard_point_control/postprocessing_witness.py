@@ -7,7 +7,7 @@ from fusionbench.eval.metrics import brier_score
 from fusionbench.methods.okapi import OKAPIMethod, _identity
 from fusionbench.scenarios.registry import SCENARIOS
 
-from okapi.globals import postprocessing_function, set_postprocessing_function
+from okapi.globals import postprocessing_function, set_postprocessing_function, use_postprocessing_function
 
 
 def draw(name, size, seed):
@@ -28,9 +28,10 @@ def verify():
         before = first.predict(test)
         second.fit(other_x, other_y, task=multi.task, n_classes=multi.n_classes)
         after = first.predict(test)
-        set_postprocessing_function(_identity)
-        restored = first.predict(test)
+        with use_postprocessing_function(_identity):
+            restored = first.predict(test)
         np.testing.assert_array_equal(restored, before)
+        np.testing.assert_array_equal(first.predict(test), after)
         return {
             "nodes": first.best_nodes,
             "test_rows": len(test),
@@ -38,6 +39,7 @@ def verify():
             "max_probability_change": float(np.abs(before - after).max()),
             "full_brier_before": brier_score(labels, before, binary.n_classes),
             "full_brier_after": brier_score(labels, after, binary.n_classes),
+            "changed_with_scoped_prediction": int(np.any(before != restored, axis=1).sum()),
         }
     finally:
         set_postprocessing_function(original)

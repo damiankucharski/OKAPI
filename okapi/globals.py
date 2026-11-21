@@ -1,4 +1,6 @@
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 from loguru import logger
 
@@ -23,19 +25,38 @@ def _passthrough(x):
     return x
 
 
+_active_postprocessor = ContextVar("okapi_postprocessor")
+
+
 # Global postprocessing function that will be applied to tree evaluations
 class Postprocessor:
     def __init__(self):
         self._postprocessing_function = _passthrough
 
     def __call__(self, x):
-        return self._postprocessing_function(x)
+        return _active_postprocessor.get(self._postprocessing_function)(x)
 
     def set_postprocessing_function(self, func):
         self._postprocessing_function = func
 
 
 postprocessing_function = Postprocessor()
+
+
+@contextmanager
+def use_postprocessing_function(func):
+    """Use func for tree evaluations in this context; restore the prior scope on exit.
+
+    Scopes may be nested. Concurrent threads and asynchronous tasks can use
+    different postprocessors. Outside a scope evaluations use the global default.
+    """
+    if not callable(func):
+        raise TypeError("postprocessing function must be callable")
+    token = _active_postprocessor.set(func)
+    try:
+        yield
+    finally:
+        _active_postprocessor.reset(token)
 
 
 def set_postprocessing_function(func):
