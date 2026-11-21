@@ -132,3 +132,30 @@ def test_targeted_operator_preserves_other_updates_and_supports_matched_paramete
 def test_targeted_operator_rejects_invalid_path(path):
     with pytest.raises(ValueError, match="operator_path"):
         tree_with_operator_type(pair(), path, MinNode)
+
+
+@pytest.mark.parametrize("family", [MeanNode, MinNode, FarThresholdNode, WeightedMeanNode])
+def test_reinitializing_the_existing_family_draws_only_its_native_parameters(family):
+    from okapi.mutation import tree_with_operator_type, tree_with_reinitialized_operator
+
+    with use_rng(np.random.RandomState(54)):
+        parent = tree_with_operator_type(pair(), (0,), family)
+    source = parent.structural_key()
+    actual_rng, reference_rng = np.random.RandomState(197), np.random.RandomState(197)
+    with use_rng(actual_rng):
+        actual = tree_with_reinitialized_operator(parent, (0,))
+    with use_rng(reference_rng):
+        reference = family.create_node([n.copy_subtree() for n in parent.root.children[0].children])
+    old, new = parent.root.children[0], actual.root.children[0]
+    assert type(new) is family and new is not old and parent.structural_key() == source
+    assert [v.id for v in new.children] == [v.id for v in old.children]
+    assert actual.mutation_chance == parent.mutation_chance
+    if family is WeightedMeanNode:
+        np.testing.assert_array_equal(new._weights, reference._weights)
+    elif family is FarThresholdNode:
+        assert new.threshold == reference.threshold
+    else:
+        assert actual.structural_key() == parent.structural_key()
+        np.testing.assert_array_equal(actual.predict(), parent.predict())
+    np.testing.assert_array_equal(actual_rng.get_state()[1], reference_rng.get_state()[1])
+    assert actual_rng.get_state()[2:] == reference_rng.get_state()[2:]

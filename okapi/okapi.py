@@ -294,6 +294,13 @@ class Okapi:
             crossover_count += 1
         return crossover_count
 
+    def _apply_structural_mutation(self, mutation, tree):
+        """Apply the chosen variation after native eligibility and sampling."""
+        return mutation(
+            tree, models=self.models, ids=self.ids, allowed_ops=self.allowed_ops,
+            max_depth=self.max_depth, max_nodes=self.max_nodes,
+        )
+
     def _mutate_additional_population(self) -> int:
         mutation_count = 0
         trees_to_add = []
@@ -310,14 +317,7 @@ class Okapi:
                 if allowed_mutations:
                     chosen_mutation = current_rng().choice(np.array(allowed_mutations))
                     logger.trace(f"Applying structural mutation: {chosen_mutation.__name__}")
-                    mutated = chosen_mutation(
-                        tree,
-                        models=self.models,
-                        ids=self.ids,
-                        allowed_ops=self.allowed_ops,
-                        max_depth=self.max_depth,
-                        max_nodes=self.max_nodes,
-                    )
+                    mutated = self._apply_structural_mutation(chosen_mutation, tree)
                     # append draws only cap-legal targets; the shrinking mutations cannot
                     # exceed a cap a within-caps parent already met. So the result is always
                     # within caps -> assert the invariant instead of reverting.

@@ -115,9 +115,9 @@ def _replaceable_slots(tree, allowed_ops):
     ]
 
 
-def _replace_operator(child: Tree, index: int, operator_type: Type[OperatorNode]) -> Tree:
+def _replace_operator(child: Tree, index: int, operator_type: Type[OperatorNode], *, initialize_same=False) -> Tree:
     previous = child.op_nodes[index]
-    if type(previous) is not operator_type:
+    if initialize_same or type(previous) is not operator_type:
         new_node = operator_type.create_node(previous.children)
         previous.parent.replace_child(previous, new_node)
         child.op_nodes[index] = new_node
@@ -135,6 +135,19 @@ def tree_with_operator_type(tree: Tree, operator_path: Path, operator_type: Type
     child = copy_for_variation(tree)
     previous = operator_at_path(child, operator_path)
     return _replace_operator(child, child.op_nodes.index(previous), operator_type)
+
+
+def tree_with_reinitialized_operator(tree: Tree, operator_path: Path) -> Tree:
+    """Redraw one operator's parameters from its own native factory in a private copy.
+
+    Keep its family, site, ordered arguments, and every other operation. A
+    parameter-free family produces a structurally equal program. The replacement
+    is a newly constructed occurrence; any mark on the original occurrence ends.
+    The factory uses the active native random stream.
+    """
+    child = copy_for_variation(tree)
+    previous = operator_at_path(child, operator_path)
+    return _replace_operator(child, child.op_nodes.index(previous), type(previous), initialize_same=True)
 
 
 def replace_operator_mutation(tree: Tree, *, allowed_ops: Sequence[Type[OperatorNode]], **kwargs):
