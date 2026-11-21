@@ -122,7 +122,8 @@ def test_requires_enough_providers_and_fit_rows():
             correlation_templates({i: np.ones(n) for i in range(k)})
 
 
-def test_public_initializer_respects_cost_and_training_entry_point(tmp_path):
+@pytest.mark.parametrize('decimals', [3, 6, None])
+def test_public_initializer_respects_cost_and_training_entry_point(tmp_path, decimals):
     from okapi.guided import seed_from_correlations
     from okapi.okapi import Okapi
     from okapi.pareto import minimize
@@ -145,9 +146,11 @@ def test_public_initializer_respects_cost_and_training_entry_point(tmp_path):
         return Okapi(paths, tmp_path / "labels.npy", 4, 2, 2,
                      backend="numpy", seed=7, objective_functions=(loss,), objectives=(minimize,), **kwargs)
 
-    gp = engine()
+    gp = engine(selection_fitness_decimals=decimals)
     assert seed_from_correlations(gp) == len(calls) == 139
     assert len(gp.population) == len(gp.fitnesses) == 4
+    unrounded = gp._calculate_fitnesses(gp.population)
+    np.testing.assert_array_equal(gp.fitnesses, unrounded if decimals is None else unrounded.round(decimals))
     gp.train(1)
     assert gp.pareto_trees and len(calls) > 139
     limited = engine(max_nodes=1)

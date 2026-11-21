@@ -78,7 +78,7 @@ def migrate_ring(engines: Sequence[Okapi]) -> tuple[MigrationResult, ...]:
             immigrant = elite.copy()
             immigrant.mutation_chance = elite.mutation_chance
             immigrant._load_tensors_to_tree(None, receiver.train_tensors)
-            score = receiver._calculate_fitnesses([immigrant]).round(3)
+            score = receiver._selection_fitnesses([immigrant])
         if not np.all((score >= 0) & (score <= 1)):
             raise ValueError("Receiver produced a nonfinite fitness or a score outside [0, 1]")
         survivors, scores = choose_pareto_then_proximity(

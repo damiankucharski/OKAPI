@@ -44,7 +44,7 @@ def make_island(tmp_path, monkeypatch):
                 values[0].add_child(MEAN(values[1:]))
             population.append(Tree(values[0], mutation_chance=0.63))
         engine.population = population
-        engine.fitnesses = engine._calculate_fitnesses().round(3)
+        engine.fitnesses = engine._selection_fitnesses(population)
         calls.clear()
         return engine, calls
 
@@ -94,6 +94,15 @@ def test_mixed_objectives_export_closest_elite(make_island):
     assert result.admitted and receiver.population[0].root.id == "b.npy"
     with pytest.raises(FrozenInstanceError):
         result.admitted = False
+
+
+@pytest.mark.parametrize('decimals', [3, 6, None])
+def test_migrating_elite_uses_receiver_selection_precision(make_island, decimals):
+    source, _ = make_island('source', {'a': .2, 'b': .3}, [('a',)])
+    receiver, _ = make_island('receiver', {'a': .1294573, 'b': .2}, [('b',)], selection_fitness_decimals=decimals)
+    assert migrate_ring([source, receiver])[1].admitted
+    raw = receiver._calculate_fitnesses(receiver.population)
+    np.testing.assert_array_equal(receiver.fitnesses, raw if decimals is None else raw.round(decimals))
 
 
 @pytest.mark.parametrize("reason", ["duplicate", "provider", "operator", "caps", "survival"])

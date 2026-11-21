@@ -1,4 +1,5 @@
 import os
+from numbers import Integral
 from pathlib import Path
 from typing import Callable, Iterable, List, Sequence, Type, Union
 
@@ -82,6 +83,7 @@ class Okapi:
         max_nodes: int | None = None,
         reuse_survivor_fitness: bool = False,
         operator_point_mutation: bool = False,
+        selection_fitness_decimals: int | None = 3,
     ):
         """
         Initialize the Okapi evolutionary algorithm.
@@ -102,6 +104,9 @@ class Okapi:
             postprocessing_function: Function applied after each Op Node.
             Most of the operations may break some data characteristics, for example vector summing to one. This can be used to fix that.
             operator_point_mutation: Allow changing one operator while keeping its inputs and position.
+            selection_fitness_decimals: Round fitness for parent and survivor selection to this many
+                decimal places (0 to 15). The historical default is 3. None retains the raw float64
+                objective values. The scoring and prediction APIs keep their original precision.
             mutation_strength: Controls magnitude of parameter mutations (default 0.1).
             Higher values cause larger parameter changes during evolution.
             max_depth: Optional hard cap on tree depth (levels; root = 1, a value->op->value
@@ -117,6 +122,12 @@ class Okapi:
                 the scores by setting ``fitnesses = None`` before the next iteration.
                 Stateful or stochastic scoring should use the default of False.
         """
+        if selection_fitness_decimals is not None and (
+            isinstance(selection_fitness_decimals, bool) or not isinstance(selection_fitness_decimals, Integral)
+            or not 0 <= selection_fitness_decimals <= 15
+        ):
+            raise ValueError("selection_fitness_decimals must be None or an integer from 0 to 15")
+        self._selection_fitness_decimals = selection_fitness_decimals
         if backend is not None:
             Backend.set_backend(backend)
         self.rng = np.random.RandomState(seed)
@@ -208,6 +219,16 @@ class Okapi:
 
         return fitnesses
 
+    @property
+    def selection_fitness_decimals(self) -> int | None:
+        """Precision of selection scores, fixed for the lifetime of a run."""
+        return getattr(self, "_selection_fitness_decimals", 3)
+
+    def _selection_fitnesses(self, trees):
+        scores = self._calculate_fitnesses(trees)
+        decimals = self.selection_fitness_decimals
+        return scores if decimals is None else scores.round(decimals)
+
     def run_iteration(self):
         """
         Run a single iteration of the evolutionary algorithm.
@@ -224,9 +245,7 @@ class Okapi:
     def _run_iteration(self):
         logger.info("Starting evolution iteration")
         if self.fitnesses is None:
-            self.fitnesses = self._calculate_fitnesses(self.population).round(
-                3
-            )  # this generally unnecessarily happens again > probably not with the if
+            self.fitnesses = self._selection_fitnesses(self.population)
 
         logger.debug("Performing tournament selection and crossover")
         assert self.fitnesses.shape[0] == len(self.population)
@@ -248,10 +267,10 @@ class Okapi:
             parent_count = len(self.fitnesses)
             retained_scores = self.fitnesses[mask[:parent_count]]
             new_trees = self.population[len(retained_scores):]
-            new_scores = self._calculate_fitnesses(new_trees).round(3)
+            new_scores = self._selection_fitnesses(new_trees)
             self.fitnesses = np.concatenate((retained_scores, new_scores))
         else:
-            self.fitnesses = self._calculate_fitnesses(self.population).round(3)
+            self.fitnesses = self._selection_fitnesses(self.population)
         assert self.fitnesses.shape[0] == len(self.population)
 
         logger.debug(f"Removed {len(joined_population) - sum(mask)} duplicate trees")

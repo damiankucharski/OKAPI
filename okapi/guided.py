@@ -196,7 +196,7 @@ def seed_from_correlations(engine, *, shuffle_seed: int | None = None, deduplica
         return 0
     pool = engine.population + proposals
     with use_rng(engine.rng):
-        scores = engine._calculate_fitnesses(pool).round(3)
+        scores = engine._selection_fitnesses(pool)
         survivors, fitnesses = choose_pareto_then_proximity(
             pool, scores, engine.objectives, engine.population_size, engine.minimize_node_count,
         )
