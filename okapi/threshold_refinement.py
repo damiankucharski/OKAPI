@@ -41,6 +41,13 @@ def _probabilities(values, name):
         raise ValueError(f"{name} must contain finite probabilities in [0, 1]")
 
 
+def _threshold(value, name):
+    scalar = np.asarray(value)
+    if scalar.ndim != 0 or scalar.dtype.kind not in "iuf" or not 0 <= scalar.item() <= 1:
+        raise ValueError(f"{name} must be a finite scalar threshold in [0, 1]")
+    return float(scalar)
+
+
 def _row_costs(output, labels):
     values = _as_array(output)
     if values.shape not in ((len(labels),), (len(labels), 1)):
@@ -107,6 +114,9 @@ def refine_threshold_coordinate(
     selected = tree.op_nodes[i]
     if type(selected) not in (ThresholdNode, CloseThresholdNode, FarThresholdNode):
         raise ValueError("Selected operator must be a built-in close/far ThresholdNode")
+    _threshold(selected.threshold, "Original threshold")
+    if not isinstance(selected.close, (bool, np.bool_)):
+        raise ValueError("Selected gate must have a boolean close/far mode")
 
     y = _as_array(labels)
     if y.ndim == 2 and y.shape[1] == 1:
@@ -118,7 +128,10 @@ def refine_threshold_coordinate(
     # Tree.copy rebuilds breadth-first node lists; a caller's current op_nodes
     # order can differ after a replacement. A structural path denotes the
     # selected occurrence unambiguously in both copies.
-    path = next(p for p, op in operator_paths(tree) if op is selected)
+    source_paths = {id(op): p for p, op in operator_paths(tree)}
+    if id(selected) not in source_paths:
+        raise ValueError("Selected operator is detached from the tree")
+    path = source_paths[id(selected)]
     candidate = tree.copy()
     candidate.mutation_chance = tree.mutation_chance
     inputs = {}
@@ -135,14 +148,23 @@ def refine_threshold_coordinate(
             layout = array.shape
             inputs[node.id] = value
         node.value = inputs[node.id]
-    target = dict(operator_paths(candidate))[path]
+    copied_operators = dict(operator_paths(candidate))
+    # Keep the public coordinate numbering for successive refinement calls,
+    # even when a prior replace_at changed it relative to traversal order.
+    if {id(op) for op in tree.op_nodes} == set(source_paths):
+        candidate.nodes["op_nodes"] = [copied_operators[source_paths[id(op)]] for op in tree.op_nodes]
+    target = copied_operators[path]
     original = target.threshold
     initial = float(_row_costs(candidate.predict(), y).mean())
 
     probe = candidate.copy()
     gate = dict(operator_paths(probe))[path]
     forced = _SelectedSlot(gate.children, len(y))
-    gate.parent.replace_child(gate, forced)
+    # Replace exactly this child occurrence; custom siblings can override
+    # equality, so an equality-based list.index search would be ambiguous.
+    forced.parent = gate.parent
+    forced.parent.children[path[-1]] = forced
+    gate.parent = None
     probe.update_nodes()
     slots = len(forced.children) + 1
     losses = np.empty((len(y), slots), dtype=np.float64)
@@ -150,10 +172,7 @@ def refine_threshold_coordinate(
         forced.slot = slot
         losses[:, slot] = _row_costs(probe.predict(), y)
     result = fit_threshold(forced.operands, losses, close=target.close, original=original)
-    threshold = np.asarray(getattr(result, "threshold", None))
-    if threshold.ndim != 0 or threshold.dtype.kind not in "iuf" or not 0 <= threshold.item() <= 1:
-        raise ValueError("Solver must return a finite scalar threshold in [0, 1]")
-    target.threshold = float(threshold)
+    target.threshold = _threshold(getattr(result, "threshold", None), "Solver threshold")
     realized = float(_row_costs(candidate.predict(), y).mean())
     if realized >= initial:
         target.threshold = original
