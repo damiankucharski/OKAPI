@@ -35,10 +35,11 @@ def verify(s, b):
     gb = b.query("method == 'gp_stock'")
     assert (gb.fit_calls == GP_BUDGET).all() and (gb.validation_calls == gb.archived_trees).all()
     assert (b.validation_selection_calls == 0).all()
-    z = b.pivot(index=["family", "bank", "nfit"], columns="method", values="fit_calls")
+    scalar = b.loc[b.method.isin(["temperature_fit", "temperature_one", "temperature_random"])]
+    z = scalar.pivot(index=["family", "bank", "nfit"], columns="method", values="fit_calls")
     assert (z.temperature_fit == z.temperature_random).all() and (z.temperature_one == 0).all()
     assert (b.loc[b.method == "temperature_fit", "nll_evaluations"] <= 2).all()
-    losses = b.pivot(index=["family", "bank", "nfit"], columns="method", values="selected_nll")
+    losses = scalar.pivot(index=["family", "bank", "nfit"], columns="method", values="selected_nll")
     assert (losses.temperature_fit <= losses.temperature_random + 1e-13).all()
     assert (s.groupby(["family", "bank", "nfit", "split"])[["oracle_sha256", "labels_sha256"]].nunique() == 1).all().all()
     assert (s[s.split != "fit"].groupby(["family", "bank", "split"])[["oracle_sha256", "labels_sha256"]].nunique() == 1).all().all()
