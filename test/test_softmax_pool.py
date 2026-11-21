@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from scipy.special import logit, softmax
+
 from okapi.softmax_pool import compile_softmax_pool
 
 

@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from scipy.special import expit
+
 from okapi.sigmoid_merge import CURVATURE_FACTOR, merge_sigmoids
 
 
