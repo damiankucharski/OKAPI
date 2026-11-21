@@ -786,6 +786,125 @@ class WeightedLogitMeanNode(OperatorNode):
         return WeightedLogitMeanNode(children, weights)
 
 
+class BinaryAffineNode(OperatorNode):
+    """Binary logistic fusion with an intercept and one signed coefficient per input.
+
+    The parent's current positive-class scores occupy slot zero, followed by the
+    children in order. Supply matching shapes (N,) or (..., 1). Use separate
+    scalar slots to reproduce a stacker fitted on both class columns per model.
+    The probability transform uses the inputs directly. The logit transform
+    computes log(p/(1-p)) after clipping p to [1e-6, 1-1e-6]. The positive
+    output uses the two-class probability floor and normalization of FusionBench.
+    Affine accumulation and the returned raw probabilities use float64. An
+    unbound node constructed with children=None can evaluate an input stack
+    directly with op(x), with a leading axis in coefficient order.
+    """
+
+    def __init__(self, children: Optional[Sequence[ValueNode]], coefficients: Sequence[float], intercept: float = 0.0, transform: str = "logit"):
+        coefficients = np.asarray(coefficients, dtype=np.float64)
+        if coefficients.ndim != 1 or not coefficients.size or not np.all(np.isfinite(coefficients)):
+            raise ValueError("Binary affine coefficients must form a nonempty vector of finite numbers")
+        if np.ndim(intercept) != 0 or not np.isfinite(float(intercept)):
+            raise ValueError("Binary affine intercept must be a finite scalar")
+        if transform not in ("probability", "logit"):
+            raise ValueError("Binary affine transform must be 'probability' or 'logit'")
+        if children is not None and len(coefficients) != len(children) + 1:
+            raise ValueError("Binary affine requires a coefficient for the parent and each child")
+        if children is not None and any(not isinstance(child, ValueNode) for child in children):
+            raise ValueError("Binary affine children must be value nodes")
+        self.coefficients = coefficients.tolist()
+        self.intercept = float(intercept)
+        self.transform = str(transform)
+        super().__init__(children)
+
+    def _feature(self, value):
+        if self.transform == "logit":
+            # Match the stock stacker's float32 logit when its inputs are
+            # float32. Promote half precision before clipping at 1 - 1e-6.
+            if isinstance(value, np.ndarray):
+                if value.dtype.kind != "f" or value.dtype.itemsize < 4:
+                    value = value.astype(np.float64)
+            elif not value.is_floating_point() or value.element_size() < 4:
+                value = value.double()
+            clipped = B.clip(value, 1e-6, 1.0 - 1e-6)
+            value = B.log(clipped / (1.0 - clipped))
+        # Keep accumulation and the final probability floor in float64 on
+        # both backends, on the same device as the input.
+        return value.astype(np.float64, copy=False) if isinstance(value, np.ndarray) else value.double()
+
+    def _reduce(self, inputs, count):
+        if count != len(self.coefficients):
+            raise ValueError("Binary affine requires one coefficient per input")
+        shape = None
+        linear = 0.0
+        for weight, value in zip(self.coefficients, inputs, strict=True):
+            current_shape = B.shape(value)
+            if not current_shape or (len(current_shape) > 1 and current_shape[-1] != 1):
+                raise ValueError("Binary affine requires single-channel probabilities shaped (N,) or (..., 1)")
+            if shape is not None and current_shape != shape:
+                raise ValueError("All binary affine inputs must have the same shape")
+            shape = current_shape
+            linear = linear + weight * self._feature(value)
+        linear = linear + self.intercept
+        tail = B.exp(-abs(linear))
+        p = ((linear >= 0) + (linear < 0) * tail) / (1.0 + tail)
+        positive = B.clip(p, 1e-12, 1.0)
+        negative = B.clip(1.0 - p, 1e-12, 1.0)
+        return positive / (positive + negative)
+
+    def op(self, x):
+        if len(B.shape(x)) < 2:
+            raise ValueError("Binary affine op requires a stacked provider axis and at least one score dimension")
+        return self._reduce(iter(x), B.shape(x)[0])
+
+    def calculate(self):
+        return PF(self._reduce(self._stream_inputs(), len(self.children) + 1))
+
+    @property
+    def code(self):
+        weights = ",".join(f"{w:.2f}" for w in self.coefficients)
+        return f"BA[{self.transform},{self.intercept:.2f},{weights}]"
+
+    def copy(self):
+        # copy_subtree restores children without calling add_child.
+        return BinaryAffineNode(None, self.coefficients, self.intercept, self.transform)
+
+    def add_child(self, child_node):
+        if not isinstance(child_node, ValueNode):
+            raise ValueError("Binary affine children must be value nodes")
+        if len(self.coefficients) == len(self.children) + 1:
+            self.coefficients.append(float(current_rng().normal()))
+        super().add_child(child_node)
+
+    def remove_child(self, child_node):
+        slot = self.children.index(child_node) + 1
+        removed = super().remove_child(child_node)
+        self.coefficients.pop(slot)
+        return removed
+
+    def replace_child(self, child, replacement_node):
+        if not isinstance(replacement_node, ValueNode):
+            raise ValueError("Binary affine children must be value nodes")
+        super().replace_child(child, replacement_node)
+
+    def mutate_params(self, mutation_strength=0.1):
+        if not np.isfinite(mutation_strength) or mutation_strength < 0:
+            raise ValueError("Mutation strength must be finite and nonnegative")
+        params = np.array([self.intercept, *self.coefficients])
+        updated = params + current_rng().normal(0.0, mutation_strength, size=len(params))
+        if not np.all(np.isfinite(updated)) or np.array_equal(updated, params):
+            return False
+        self.intercept = float(updated[0])
+        self.coefficients = updated[1:].tolist()
+        return True
+
+    @staticmethod
+    def create_node(children):
+        rng = current_rng()
+        count = 1 + len(children) if children is not None else 1
+        return BinaryAffineNode(children, rng.normal(size=count), transform=rng.choice(("probability", "logit")))
+
+
 class MaxNode(OperatorNode):
     """
     Represents a Max Node in a computational tree.
@@ -1032,6 +1151,8 @@ def _node_parameters(node):
         return ()
     if kind in (WeightedMeanNode, WeightedLogitMeanNode):
         return tuple(_scalar_key(weight) for weight in node._weights)
+    if kind is BinaryAffineNode:
+        return tuple(_scalar_key(value) for value in (node.transform, node.intercept, *node.coefficients))
     if kind is LogitMeanNode:
         return _scalar_key(node.temperature), _scalar_key(node.shift)
     if kind in (ThresholdNode, CloseThresholdNode, FarThresholdNode):
