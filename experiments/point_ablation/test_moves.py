@@ -45,7 +45,7 @@ def test_one_draw_has_identical_location_proposal_and_native_rng_across_all_poli
     events = {}
     rngs = {}
     outputs = {}
-    for mode in ("retype", "identity", "refresh"):
+    for mode in ("retype", "identity", "refresh", "refresh_independent"):
         engine = object.__new__(Controls)
         engine.models, engine.ids = data, ["a", "b", "c"]
         engine.max_depth = engine.max_nodes = None
@@ -60,7 +60,7 @@ def test_one_draw_has_identical_location_proposal_and_native_rng_across_all_poli
     assert parent.structural_key() == source
     assert outputs["retype"].structural_key() != source and outputs["identity"].structural_key() == source
     assert len({(e.path, e.original_family, e.proposed_family) for e in events.values()}) == 1
-    for mode in ("identity", "refresh"):
+    for mode in ("identity", "refresh", "refresh_independent"):
         np.testing.assert_array_equal(rngs[mode][1], rngs["retype"][1])
         assert rngs[mode][2:] == rngs["retype"][2:]
     e = events["refresh"]
@@ -106,3 +106,30 @@ def test_full_retype_and_no_fourth_move_replay_their_stock_native_counterparts(t
         controlled, observed = run(Controls, enabled)
         assert controlled == native
         assert bool(observed) == enabled
+
+
+def test_refresh_threshold_does_not_reuse_next_parameter_mutation_decision():
+    data = np.zeros((4, 1))
+    root = ValueNode([FarThresholdNode([ValueNode(None, data, "b")], .4)], data, "a")
+    tree = Tree(root)
+    engine = object.__new__(Controls)
+    engine.models, engine.ids = [data, data], ["a", "b"]
+    engine.max_depth = engine.max_nodes = None
+    engine.allowed_ops = [MeanNode, FarThresholdNode]
+    def sample(mode, seed):
+        engine.point_policy = mode
+        stream = np.random.RandomState(seed)
+        with use_rng(stream):
+            child = engine._apply_structural_mutation(replace_operator_mutation, tree)
+            return child.op_nodes[0].threshold, stream.rand()
+
+    seeds = range(8712, 8712 + 256)
+    original = [sample("refresh", seed) for seed in seeds]
+    assert all(threshold == decision for threshold, decision in original)
+    samples = [sample("refresh_independent", seed) for seed in seeds]
+    assert samples[0] == sample("refresh_independent", 8712)
+    assert [decision for _, decision in original] == [decision for _, decision in samples]
+    assert all(threshold != decision for threshold, decision in samples)
+    assert {(threshold < .5, decision < .5) for threshold, decision in samples} == {
+        (True, True), (True, False), (False, True), (False, False),
+    }

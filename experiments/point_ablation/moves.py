@@ -1,6 +1,8 @@
 """Research controls for a categorically selected, genuine native operator retype."""
 
 from dataclasses import dataclass
+from hashlib import sha256
+from struct import pack
 
 import numpy as np
 
@@ -18,12 +20,23 @@ class PointEvent:
     changed: bool
 
 
+def _refresh_stream():
+    """Fork the post-proposal state without reusing the next native draws."""
+    algorithm, keys, position, has_gaussian, cached_gaussian = current_rng().get_state()
+    digest = sha256(b"okapi/point-ablation/refresh/v1\x00")
+    digest.update(algorithm.encode("ascii"))
+    digest.update(keys.astype("<u4", copy=False).tobytes())
+    digest.update(pack("<IId", position, has_gaussian, cached_gaussian))
+    return np.random.RandomState(np.frombuffer(digest.digest(), dtype="<u4"))
+
+
 class MatchedPointControls:
     """Mix in before Okapi, set point_policy and enable native point mutation.
 
-    The three policies always execute the same genuine proposal first. The
-    identity policy returns a private copy; refresh initializes the original
-    operator's family from a copy of the native post-proposal RNG state.
+    All matched policies execute the same genuine proposal first. Identity
+    returns a private copy. Refresh redraws the original family's parameters
+    with either a direct copy of the post-proposal state (refresh) or a
+    domain-separated hash of that state (refresh_independent).
     An optional point_event_callback(event) observes completed point events.
     """
 
@@ -33,8 +46,8 @@ class MatchedPointControls:
     def _apply_structural_mutation(self, mutation, tree):
         if mutation is not replace_operator_mutation:
             return super()._apply_structural_mutation(mutation, tree)
-        if self.point_policy not in {"retype", "identity", "refresh"}:
-            raise ValueError("point_policy must be retype, identity or refresh")
+        if self.point_policy not in {"retype", "identity", "refresh", "refresh_independent"}:
+            raise ValueError("point_policy must be retype, identity, refresh or refresh_independent")
         proposal = super()._apply_structural_mutation(mutation, tree)
         # Production retyping retains native node-list order and changes exactly one family.
         differences = [
@@ -50,8 +63,11 @@ class MatchedPointControls:
         elif self.point_policy == "identity":
             result = copy_for_variation(tree)
         else:
-            shadow = np.random.RandomState(0)
-            shadow.set_state(current_rng().get_state())
+            if self.point_policy == "refresh_independent":
+                shadow = _refresh_stream()
+            else:
+                shadow = np.random.RandomState(0)
+                shadow.set_state(current_rng().get_state())
             with use_rng(shadow):
                 result = tree_with_reinitialized_operator(tree, path)
         if self.point_event_callback is not None:
