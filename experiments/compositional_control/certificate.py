@@ -37,10 +37,13 @@ def verify():
 
     # The two opposite positive corners and two opposite negative corners
     # have identical summed feature vectors. Affine scores must share their sum.
-    np.testing.assert_array_equal(
-        bits[[0b110000, 0b001100]].sum(axis=0),
-        bits[[0b101000, 0b010100]].sum(axis=0),
-    )
+    positive = bits[[0b110000, 0b001100]].sum(axis=0)
+    for negative in ([0b101000, 0b010100], [0b100100, 0b011000]):
+        np.testing.assert_array_equal(positive, bits[negative].sum(axis=0))
+    low, high = Fraction(1, 64), Fraction(63, 64)
+    pooled = (high + 2 * low) / 3
+    relaxed = (high - pooled) ** 2 + 2 * (low - pooled) ** 2
+    assert relaxed / (2 * 16) == Fraction(961, 49152)
     score = bits[:, :4] @ [2, 2, 1, 1] - 3.5
     assert Fraction(int(np.sum((score >= 0) != target)), 64) == Fraction(1, 16)
 
