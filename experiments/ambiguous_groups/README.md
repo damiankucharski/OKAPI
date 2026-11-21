@@ -86,15 +86,16 @@ graphs, group counts or target functions may require more proposals.
 Use the OKAPI lab checkout and FusionBench commit `4cf4810` on PYTHONPATH.
 The two worlds share fit, validation and test sensor matrices. Only each
 world's own labels enter its model fitting. Both worlds' predictors are
-frozen before the separate IID and shifted test draws. Three unit tests
-include an independent exchange-of-worlds check with bit-identical inputs.
+frozen before the separate IID and shifted test draws. Four tests cover
+the graph, bit-identical swapped-world inputs, ranking and fitting. The
+driver test checks which label arrays reach each fit and when tests are drawn.
 A fresh-process replay of banks 41200 and 41211 exactly reproduced all
 non-timing fields in 24 fit, 12 recovery and 56 test records.
 
 ```bash
 export PYTHONPATH="$PWD:$FUSIONBENCH"
 export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OKAPI_LOG_LEVEL=ERROR
-python -m pytest -q experiments/ambiguous_groups/test_worlds.py
+python -m pytest -q experiments/ambiguous_groups
 python -m experiments.ambiguous_groups.run --out /tmp/ambiguous-groups
 ```
 
