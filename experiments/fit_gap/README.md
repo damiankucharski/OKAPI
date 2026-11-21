@@ -62,3 +62,18 @@ python experiments/fit_gap/run.py --out /tmp/fit-gap
 ```
 
 [Preregistered protocol](protocol.md) · [Driver](run.py) · [Per-bank measurements](results/measurements.csv) · [All means](results/means.csv) · [Paired contrasts](results/paired.csv)
+
+## Retrospective ranked-prefix Top-N comparison
+
+We added the user's ranked-prefix comparator after inspecting the original results. Each of the 12 banks per family uses the same simulated provider predictions as before. On the fit rows we ranked individual providers once by increasing Brier loss, then selected N by scoring every equally weighted prefix of that ranking. We used original provider order for tied individual scores and the smaller N for tied prefix scores. The trained prefix remained fixed across validation, IID and shift. The table uses 384 fit labels and positive-class Brier throughout.
+
+| Family and test domain | Arithmetic mean | Top-N mean | Logistic stacking on logits | OKAPI, 48 generations |
+|---|---:|---:|---:|---:|
+| TwoPathways, IID | .15451 | .15690 | .13275 | .16071 |
+| TwoPathways, weaker detectors | .19238 | .19396 | .17543 | .20009 |
+| CorrelatedRedundancy, IID | .14379 | .13724 | .08751 | .11992 |
+| CorrelatedRedundancy, lower error correlation | .12148 | .12866 | .07934 | .11449 |
+
+On CorrelatedRedundancy the chosen N ranged from 2 to 10 (mean 5.5 of 10). Selecting the prefix improved average IID loss over pooling all experts by .00655 (paired 95% t interval .00253–.01057). It increased shifted loss by .00718 (.00260–.01175). On TwoPathways the chosen N averaged 7.08 of 8. All 288 replayed arithmetic-mean scores matched the archive to absolute tolerance 1e−12. The results file includes the 96- and 1,536-label conditions, every seed, held-out validation and both test conditions.
+
+To reproduce the supplement, point `PYTHONPATH` at both research checkouts, using FusionBench revision `f074e85281c056e45585073073c93a0a921e88ff`, and run `python experiments/fit_gap/top_n_replay.py` from OKAPI. [Per-seed replay](results/top_n_replay.csv)
