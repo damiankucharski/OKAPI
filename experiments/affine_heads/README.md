@@ -80,3 +80,5 @@ python -m experiments.affine_heads.independent_fit --archive /tmp/affine-heads/s
 [Primary benchmark](run.py) · [Independent fitting and precision check](independent_fit.py) · [FusionBench reference stackers](https://github.com/damiankucharski/FusionBench/blob/f074e85281c056e45585073073c93a0a921e88ff/fusionbench/methods/stacking.py)
 
 Independent FusionBench validation also transferred fitted stacks on real WDBC out-of-fold provider predictions. Its maximum float64 discrepancy was 8.36e−13; the held-out Brier improvement from a single forest/LDA maximum feature over flat stacking was unresolved. This uses a different feature and data source. [Independent WDBC report](https://github.com/damiankucharski/FusionBench/blob/ee9b789/docs/ensemble-study/real-affine-head/README.md)
+
+On the independently published calibrated-suppressor panel, both native tree forms preserved the negative weak-source coefficient in all 24 high-correlation fits. They also reproduced its deterioration when that correlation disappeared. [Matched transfer replay and source anchors](../affine_suppressor/README.md)
