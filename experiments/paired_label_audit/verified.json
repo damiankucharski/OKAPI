@@ -1,0 +1,18 @@
+{
+  "ordered_forecast_pairs": 729,
+  "forecast_pair_label_vectors": 5832,
+  "uniform_two_draw_checks": 5832,
+  "pps_two_draw_checks_including_binomial": 5616,
+  "identical_forecasts_no_labels_required": 216,
+  "exact_intervals_against_every_compatible_completion": 46656,
+  "greedy_width_against_all_subsets_at_fixed_size": 23328,
+  "different_offset_counterexample": {
+    "fixed_labels": [
+      0,
+      0
+    ],
+    "centered_variance_two_draws": "1/2",
+    "alternative_variance_two_draws": "0"
+  },
+  "runtime_s": 1.758
+}
