@@ -1,0 +1,17 @@
+law,generation,scope,starts,root,subtree,raw,prefix,extra,raw_extra,proper_extra,mean_extra,low,high,banks_with_extra
+additive,1,history,32,0,0,0,0,0,0,0,0.0,0.0,0.0,0
+additive,1,live,32,0,0,0,0,0,0,0,0.0,0.0,0.0,0
+additive,5,history,32,0,0,0,0,0,0,0,0.0,0.0,0.0,0
+additive,5,live,32,0,0,0,0,0,0,0,0.0,0.0,0.0,0
+additive,10,history,32,0,0,0,0,0,0,0,0.0,0.0,0.0,0
+additive,10,live,32,0,0,0,0,0,0,0,0.0,0.0,0.0,0
+additive,15,history,32,0,0,0,0,0,0,0,0.0,0.0,0.0,0
+additive,15,live,32,0,0,0,0,0,0,0,0.0,0.0,0.0,0
+matched,1,history,32,0,0,0,0,0,0,0,0.0,0.0,0.0,0
+matched,1,live,32,0,0,0,0,0,0,0,0.0,0.0,0.0,0
+matched,5,history,32,1,1,1,1,0,0,0,0.0,0.0,0.0,0
+matched,5,live,32,0,0,0,0,0,0,0,0.0,0.0,0.0,0
+matched,10,history,32,1,1,1,1,0,0,0,0.0,0.0,0.0,0
+matched,10,live,32,0,0,0,0,0,0,0,0.0,0.0,0.0,0
+matched,15,history,32,1,1,1,1,0,0,0,0.0,0.0,0.0,0
+matched,15,live,32,0,0,0,0,0,0,0,0.0,0.0,0.0,0

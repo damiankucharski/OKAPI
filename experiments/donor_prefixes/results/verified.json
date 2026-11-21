@@ -1,0 +1,27 @@
+{
+  "archives": 64,
+  "chronological_calls": 25600,
+  "program_dict_entries": 2887,
+  "unique_source_genotypes": 1253,
+  "unique_native_prefixes": 1706,
+  "unique_strict_intermediate_genotypes": 139,
+  "grid_rows_per_prefix": 256,
+  "corners_per_prefix": 16,
+  "snapshots": 512,
+  "independent_booleans": 2048,
+  "matched_live_G15": {
+    "root": 0,
+    "final": 0,
+    "raw": 0,
+    "all": 0
+  },
+  "added_G15_starts": 0,
+  "added_G15_banks": 0,
+  "paired_mean": 0.0,
+  "paired_t95": [
+    0.0,
+    0.0
+  ],
+  "one_sided_95_upper_bank_pair_hit": 0.17074972298248092,
+  "verified_against_reference": 512
+}
