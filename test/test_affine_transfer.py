@@ -5,11 +5,11 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from okapi.affine import stacking_tree
+from okapi.affine import fit_stacking_tree, stacking_tree
 from okapi.backend.backend import Backend
 from okapi.backend.numpy_backend import NumpyBackend
 from okapi.globals import postprocessing_function
-from okapi.node import MeanNode, ValueNode
+from okapi.node import MaxNode, MeanNode, ValueNode
 from okapi.tree import Tree
 
 
@@ -139,3 +139,77 @@ def test_public_fusionbench_model_integration(method, transform):
     expected = model.predict(channels(query).reshape(len(query), 4, 2))[:, 1]
     actual = stacking_tree(leaves(query), model.model, transform=transform).predict().ravel()
     np.testing.assert_allclose(actual, expected, atol=2e-12, rtol=0)
+
+
+@pytest.mark.parametrize("transform", ["probability", "logit"])
+@pytest.mark.parametrize("folded", [True, False])
+def test_native_fit_matches_independent_fit_and_transfer_on_nonlinear_roots(transform, folded):
+    rng = np.random.default_rng(350)
+    source, query = rng.uniform(.02, .98, (250, 5)), rng.uniform(.02, .98, (85, 5))
+
+    def program_columns(raw):
+        nonlinear = np.maximum(raw[:, 0], raw[:, 1])
+        values = np.column_stack([nonlinear, raw[:, 2]]) if folded else np.column_stack([nonlinear, raw[:, 2:]])
+        return channels(values) if folded else values
+
+    first = ValueNode(None, source[:, 0:1], 0)
+    first.add_child(MaxNode([ValueNode(None, source[:, 1:2], 1)]))
+    indices = [2] if folded else [2, 3, 4]
+    roots = [first, *(ValueNode(None, source[:, j:j+1], j) for j in indices)]
+    y = (np.maximum(source[:, 0], source[:, 1])-source[:, 2] > .13).astype(int)
+    initial_nodes = first.get_nodes()
+    initial_values = source.copy()
+    native = fit_stacking_tree(roots, y[:, None], transform=transform, complementary=folded, c_value=.42, max_iter=275)
+    assert all(node.evaluation is None for node in first.get_nodes() if isinstance(node, ValueNode))
+    assert first.get_nodes() == initial_nodes
+    np.testing.assert_array_equal(initial_values, source)
+
+    # Independent parameter fit on the analytically evaluated max; only data,
+    # settings and the sklearn solver are shared with native training.
+    pipe = make_pipeline(StandardScaler(), LogisticRegression(C=.42, solver="lbfgs", max_iter=275))
+    pipe.fit(features(program_columns(source), transform), y)
+    transferred = stacking_tree(roots, pipe, transform=transform, complementary=folded)
+    tensor_map = {i: query[:, i:i+1] for i in range(query.shape[1])}
+    expected = public_proba(pipe, program_columns(query), transform)
+    for tree in (native, transferred):
+        actual = tree.do_pred_on_another_tensors(current_tensors=tensor_map).ravel()
+        np.testing.assert_allclose(actual, expected, rtol=0, atol=2e-12)
+
+
+@pytest.mark.parametrize("dtype", ["float64", "bfloat16"])
+def test_native_fit_evaluates_cpu_torch_roots_and_labels(monkeypatch, dtype):
+    torch = pytest.importorskip("torch")
+    from okapi.backend.pytorch import PyTorchBackend
+
+    monkeypatch.setattr(Backend, "_current_backend", PyTorchBackend)
+    rng = np.random.default_rng(355)
+    x = rng.uniform(.02, .98, (120, 2))
+    y = (x[:, 0] - x[:, 1] > .1).astype(int)
+    values = torch.tensor(x, dtype=getattr(torch, dtype), requires_grad=True)
+    roots = [ValueNode(None, values[:, j:j+1], j) for j in range(2)]
+    labels = torch.tensor(y, dtype=getattr(torch, dtype))
+    actual = fit_stacking_tree(roots, labels, transform="logit").predict().detach().cpu().numpy().ravel()
+    observed = (values.float() if dtype == "bfloat16" else values).detach().numpy()
+    pipe = make_pipeline(StandardScaler(), LogisticRegression(solver="lbfgs", max_iter=2000)).fit(features(channels(observed), "logit"), y)
+    tolerance = 2e-6 if dtype == "bfloat16" else 2e-12
+    np.testing.assert_allclose(actual, public_proba(pipe, channels(observed), "logit"), atol=tolerance, rtol=0)
+
+
+def test_native_fit_rejects_invalid_labels_roots_and_outputs():
+    p = np.array([.1, .4, .6, .9])
+    roots = [ValueNode(None, p, "p")]
+    y = np.array([0, 0, 1, 1])
+    for bad_labels in ([1, 1, 1, 1], [0, 0, 2, 2], [[0, 1], [1, 0]], [0, 1, np.nan, 1]):
+        with pytest.raises(ValueError, match="binary classes"):
+            fit_stacking_tree(roots, bad_labels, transform="probability")
+    for bad in (np.column_stack((p, p)), p[:2], np.array(1.)):
+        with pytest.raises(ValueError, match="one probability per label"):
+            fit_stacking_tree([ValueNode(None, bad, "p")], y, transform="probability")
+    for bad in ([0, np.nan, 1, .2], [0, 2, 1, .2], [0, np.inf, 1, .2], [-.1, 1, 0, 1]):
+        with pytest.raises(ValueError, match="finite probabilities"):
+            fit_stacking_tree([ValueNode(None, np.array(bad), "p")], y, transform="logit")
+    with pytest.raises(ValueError, match="2M"):
+        fit_stacking_tree(roots, y, complementary=False, transform="probability")
+    for bad_roots in ([], [p]):
+        with pytest.raises(ValueError, match="ValueNode roots"):
+            fit_stacking_tree(bad_roots, y, transform="probability")
