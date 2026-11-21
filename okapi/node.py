@@ -33,6 +33,7 @@ class Node:
     # direct calls to Node.calculate() keep the older "caches remain for inspection"
     # behavior used by existing tests and debugging workflows.
     _EAGER_FREE_EVALS: bool = False
+    _okapi_gate_origin: str | None = None
 
     def __init__(self, children: Optional[Sequence["Node"]] = None):
         """
@@ -121,6 +122,10 @@ class Node:
         """
         logger.debug(f"Creating copy of subtree rooted at {self}")
         self_copy = self.copy()
+        # Gate lineage follows native subtree copies, including crossover donors.
+        origin = self._okapi_gate_origin
+        if type(origin) is str:
+            self_copy._okapi_gate_origin = origin
 
         for child in self.children:
             logger.trace(f"Copying child subtree: {child}")

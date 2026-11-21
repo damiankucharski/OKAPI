@@ -1,7 +1,7 @@
 """Propose a binary CLOSE/FAR graft at one terminal occurrence of a fit tree."""
 
 from collections import deque
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from operator import index
 
@@ -92,6 +92,55 @@ def _integer(value, name, minimum):
     if count < minimum:
         raise ValueError(f"{name} must be at least {minimum}")
     return count
+
+
+def threshold_graft_variant(
+    tree: Tree, site_path: Sequence[int], *, reset_threshold: bool = False, duplicate_anchor: bool = False,
+) -> Tree:
+    """Copy a graft and optionally reset its cutoff or duplicate its anchor.
+
+    Pass the accepted graft's site_path, which addresses the formerly terminal
+    ValueNode (the root for an empty path). Its sole update must be a native
+    CLOSE or FAR gate with one simple ValueNode operand. The two flags independently
+    set the cutoff to 0.5 and replace that operand's provider ID and tensor with
+    the anchor's. Remaining node parameters and provider bindings are retained.
+
+    The duplicated operand produces the ungrafted terminal's exact activation
+    with identity postprocessing. The gate still runs normal postprocessing,
+    so a nonidentity function can change that activation. Construction neither
+    evaluates the tree nor draws random numbers.
+    """
+    if not isinstance(reset_threshold, (bool, np.bool_)) or not isinstance(duplicate_anchor, (bool, np.bool_)):
+        raise TypeError("reset_threshold and duplicate_anchor must be boolean")
+    if not isinstance(site_path, Sequence) or isinstance(site_path, (str, bytes)):
+        raise TypeError("site_path must be a sequence of child indices")
+    path = tuple(_integer(i, "site_path index", 0) for i in site_path)
+    anchor = tree.root
+    for child_index in path:
+        if child_index >= len(anchor.children):
+            raise ValueError("site_path falls outside the tree")
+        anchor = anchor.children[child_index]
+    if not isinstance(anchor, ValueNode) or len(anchor.children) != 1:
+        raise ValueError("site_path must identify a ValueNode with one grafted update")
+    gate = anchor.children[0]
+    if type(gate) not in (CloseThresholdNode, FarThresholdNode) or len(gate.children) != 1:
+        raise ValueError("The graft must be a native binary CLOSE or FAR gate")
+    operand = gate.children[0]
+    if type(operand) is not ValueNode or operand.children:
+        raise ValueError("The graft operand must be a terminal ValueNode")
+
+    variant = tree.copy()
+    variant.mutation_chance = tree.mutation_chance
+    copied_anchor = variant.root
+    for child_index in path:
+        copied_anchor = copied_anchor.children[child_index]
+    copied_gate = copied_anchor.children[0]
+    if reset_threshold:
+        copied_gate.threshold = 0.5
+    if duplicate_anchor:
+        copied_operand = copied_gate.children[0]
+        copied_operand.id, copied_operand.value = copied_anchor.id, copied_anchor.value
+    return variant
 
 
 def propose_threshold_graft(
