@@ -192,6 +192,8 @@ def test_invalid_tokens_paths_and_custom_threshold_subclasses_are_rejected():
                        (Tree(ValueNode([MeanNode([leaf("b")])], np.array([.1]), "a")), (0,))):
         with pytest.raises(ValueError):
             mark_gate_origin(tree, path, token="source")
+        with pytest.raises(ValueError):
+            tree_with_gate_cutoff(tree, [path])
 
 
 def test_joint_cutoff_reset_preserves_evolved_operands_and_order(monkeypatch):

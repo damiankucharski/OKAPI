@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from numbers import Integral
 
-from okapi.interventions import Path, operator_paths
+from okapi.interventions import Path, copy_for_variation, operator_paths
 from okapi.node import CloseThresholdNode, FarThresholdNode, ThresholdNode
 from okapi.threshold_refinement import _threshold
 from okapi.tree import Tree
@@ -46,18 +46,10 @@ def mark_gate_origin(tree: Tree, gate_path: Path, *, token: str) -> Tree:
     Marking consumes no random draws and leaves predictions and structural keys intact.
     """
     token = _token_string(token)
-    gate = _gate_at(dict(operator_paths(tree)), gate_path)
-
-    marked = tree.copy()
-    marked.mutation_chance = tree.mutation_chance
-    copies = {id(a): b for a, b in zip(tree.root.get_nodes(), marked.root.get_nodes(), strict=True)}
-    copies[id(gate)]._okapi_gate_origin = token
-    # Tree.copy rebuilds node lists breadth-first. Valid source lists may have
-    # a different order after edits; keep that order for index-based sampling.
-    for name, nodes in marked.nodes.items():
-        ordered = [copies.get(id(node)) for node in tree.nodes[name]]
-        if len(ordered) == len(nodes) and {id(node) for node in ordered} == {id(node) for node in nodes}:
-            marked.nodes[name] = ordered
+    path = tuple(gate_path)
+    _gate_at(dict(operator_paths(tree)), path)
+    marked = copy_for_variation(tree)
+    dict(operator_paths(marked))[path]._okapi_gate_origin = token
     return marked
 
 
@@ -93,7 +85,10 @@ def tree_with_gate_cutoff(tree: Tree, paths: Iterable[Path], *, threshold: float
     cutoff = _threshold(threshold, "Replacement cutoff")
     candidate = tree.copy()
     candidate.mutation_chance = tree.mutation_chance
-    gates = dict(operator_paths(candidate))
+    source = dict(operator_paths(tree))
+    result = dict(operator_paths(candidate))
     for path in paths:
-        _gate_at(gates, path).threshold = cutoff
+        path = tuple(path)
+        _gate_at(source, path)
+        result[path].threshold = cutoff
     return candidate

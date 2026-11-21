@@ -1,9 +1,11 @@
 """Interventions on the ordered updates of an OKAPI tree."""
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
+from operator import index as integer_index
 
 import numpy as np
 
+from okapi.lib_types import Tensor
 from okapi.node import Node, OperatorNode
 from okapi.tree import Tree
 
@@ -20,6 +22,48 @@ def operator_paths(tree: Tree) -> Iterator[tuple[Path, OperatorNode]]:
             yield from visit(child, child_path)
 
     yield from visit(tree.root, ())
+
+
+def copy_for_variation(tree: Tree) -> Tree:
+    """Copy a tree while preserving the index order used to sample genetic edits."""
+    candidate = tree.copy()
+    candidate.mutation_chance = tree.mutation_chance
+    copies = {id(a): b for a, b in zip(tree.root.get_nodes(), candidate.root.get_nodes(), strict=True)}
+    for name, nodes in candidate.nodes.items():
+        ordered = [copies.get(id(node)) for node in tree.nodes[name]]
+        if len(ordered) == len(nodes) and {id(node) for node in ordered} == {id(node) for node in nodes}:
+            candidate.nodes[name] = ordered
+    return candidate
+
+
+def tree_with_operand_provider(
+    tree: Tree, operator_path: Path, child_index: int, provider_id: int | str, tensor: Tensor,
+) -> Tree:
+    """Bind one direct child of an existing operator to another provider in a private copy.
+
+    Child indices address the operator's stored children. Its parent's incoming
+    value is excluded. All operations attached to the child and every other
+    occurrence of its former ID retain their original position and parameters.
+    """
+    path = tuple(operator_path)
+    if any(isinstance(step, (bool, np.bool_)) or not isinstance(step, (int, np.integer)) or step < 0 for step in path):
+        raise ValueError("operator_path must contain nonnegative integer indices")
+    if isinstance(child_index, (bool, np.bool_)):
+        raise TypeError("child_index must be an integer")
+    slot = integer_index(child_index)
+    if isinstance(provider_id, (bool, np.bool_)) or not isinstance(provider_id, (int, str, np.integer)):
+        raise TypeError("provider_id must be an integer or string")
+    candidate = copy_for_variation(tree)
+    operator = dict(operator_paths(candidate)).get(path)
+    if operator is None:
+        raise ValueError("operator_path must identify an operator")
+    if not 0 <= slot < len(operator.children):
+        raise ValueError("child_index must identify a direct operand")
+    child = operator.children[slot]
+    if getattr(tensor, "shape", None) != child.value.shape:
+        raise ValueError("replacement tensor must match the original provider shape")
+    child.id, child.value = provider_id, tensor
+    return candidate
 
 
 def tree_with_bypass(tree: Tree, paths: Iterable[Path]) -> Tree:
