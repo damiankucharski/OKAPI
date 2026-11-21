@@ -1,0 +1,13 @@
+# A control that requires multiple native updates
+
+With six independent coordinates, let four play the hidden roles A, B, C and D. Define the conditional probability as max(min(A,B), min(C,D)). A seven-node native tree with three operator updates represents this function for all real inputs. The witness is available only to the evaluator. There are no fit labels involved in this certificate. The law differs from FusionBench TwoPathways, which observes several noisy detectors of each latent variable and has a noisy-OR posterior.
+
+## Exact one-update error on 64 corners
+
+Let each provider be a fair independent bit, with identity postprocessing and the ordinary six native operator types. The target is one on 7 of the 16 signal configurations. Squared error to that conditional probability is excess Brier. A single update may use arbitrary repeated and ordered providers.
+
+* MIN and MAX reduce to conjunction and disjunction on a nonempty subset. Enumeration over all 63 subsets gives minimum error 3/16 and 5/16 respectively. CLOSE and FAR select the low, the high, or the first operand at a midpoint tie. This covers thresholds anywhere in [0,1], arbitrary order, and repeated IDs.
+* MEAN and the stock, nonnegatively initialized and mutated WEIGHTED_MEAN form convex combinations. Merge repeated inputs into one coefficient per provider. Let s be the total mass assigned to the four signal coordinates. Each signal has covariance 3/32 with the target; the two decoys have zero covariance. For fixed s, equal weights within each group minimize the variance. The smallest risk at that s equals 1/4 + s²/16 + (1−s)²/8 − 3s/16. Its derivative (6s−7)/16 is negative throughout [0,1]. The optimal risk is **1/8**, attained by putting weight 1/4 on each signal. Single providers are included.
+* On endpoints 1/64 and 63/64 the entire squared-error calculation scales by (62/64)². The exact best native one-update excess becomes **961/8192**, versus zero for the witness. If half the population draws this corner distribution and half draws arbitrary other rows satisfying the same law, the population excess of any one-update program is at least **961/16384**. That last number is a lower bound on the mixture.
+
+The checker enumerates the discrete masks, checks each covariance, and runs ordinary native NumPy trees for the attainable one- and three-update errors at both scales. The bounds are specific to the declared grammar, identity postprocessing, conditional law and distribution. This is a representation control and an original derivation for the OKAPI/FusionBench experiment. [Executable certificate](certificate.py)
