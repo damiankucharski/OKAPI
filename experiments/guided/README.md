@@ -74,3 +74,17 @@ python experiments/guided/run.py --out /tmp/guided-reproduction
 ```
 
 The default banks are 25100–25111, crossed with GP seeds 311 and 751. A fresh-process replay of banks 25102 and 25110 with both starts reproduced all 288 records in all 20 non-timing fields exactly, including program, incumbent assessment number, size, Brier and accuracy. [Experiment driver](run.py) · [Opt-in template constructor](../../okapi/guided.py)
+
+## Use in an ordinary OKAPI run
+
+For binary positive-class NumPy predictions, apply the optional initializer immediately after constructing the optimizer. It scores feasible templates and the initial residents, honors the engine's operator and size limits, and returns the number of full tree assessments.
+
+```python
+from okapi.guided import seed_from_correlations
+
+initial_fit_calls = seed_from_correlations(optimizer)
+optimizer.train(iterations=20)
+trees = optimizer.pareto_trees
+```
+
+Ordinary training uses its existing Pareto selection. The benchmark additionally archived the best full-precision fit program ever seen to compare every policy at exact assessment budgets.

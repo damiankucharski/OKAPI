@@ -5,8 +5,12 @@ from itertools import combinations
 
 import numpy as np
 
+from okapi.backend.backend import Backend
+from okapi.backend.numpy_backend import NumpyBackend
 from okapi.node import ValueNode
 from okapi.operators import MAX, MEAN, MIN
+from okapi.population import choose_pareto_then_proximity
+from okapi.random_state import use_rng
 from okapi.tree import Tree
 
 
@@ -113,3 +117,34 @@ def correlation_templates(
     values = [(array if array.shape == shape else array.reshape(shape)).astype(dtype, copy=False) for array in arrays]
     cuts = _average_link_cuts(_correlation_distances(np.column_stack(values)))
     return _templates_from_cuts(ids, values, cuts, shuffle_seed)
+
+
+def seed_from_correlations(engine, *, shuffle_seed: int | None = None) -> int:
+    """Offer fit-only correlation templates to a NumPy OKAPI population.
+
+    Call after constructing the engine and before training. Existing operator
+    and size/depth restrictions filter proposals. Score each resident and
+    feasible template once and apply the engine's usual survivor selection.
+    The return value counts full tree evaluations. With no feasible proposal
+    the population is left in place and the count is zero.
+
+    The templates assume binary probabilities and node postprocessing that
+    leaves these probabilities unchanged. Ordinary GP training proceeds with
+    its usual selection after this explicit initialization.
+    """
+    if Backend.get_backend() is not NumpyBackend:
+        raise ValueError("Correlation initialization requires the NumPy backend")
+    proposals = [
+        tree for tree in correlation_templates(engine.train_tensors, shuffle_seed=shuffle_seed)
+        if engine._within_caps(tree) and all(type(op) in engine.allowed_ops for op in tree.op_nodes)
+    ]
+    if not proposals:
+        return 0
+    pool = engine.population + proposals
+    with use_rng(engine.rng):
+        scores = engine._calculate_fitnesses(pool).round(3)
+        survivors, fitnesses = choose_pareto_then_proximity(
+            pool, scores, engine.objectives, engine.population_size, engine.minimize_node_count,
+        )
+    engine.population, engine.fitnesses = survivors, fitnesses
+    return len(pool)

@@ -120,3 +120,37 @@ def test_requires_enough_providers_and_fit_rows():
     for n, k in ((5, 3), (1, 4)):
         with pytest.raises(ValueError):
             correlation_templates({i: np.ones(n) for i in range(k)})
+
+
+def test_public_initializer_respects_cost_and_training_entry_point(tmp_path):
+    from okapi.guided import seed_from_correlations
+    from okapi.okapi import Okapi
+    from okapi.pareto import minimize
+
+    paths = []
+    rng = np.random.default_rng(45)
+    y = rng.integers(2, size=64)
+    np.save(tmp_path / "labels.npy", y)
+    for i in range(4):
+        path = tmp_path / f"provider{i}.npy"
+        np.save(path, rng.random((len(y), 1)))
+        paths.append(path)
+    calls = []
+
+    def loss(p, labels):
+        calls.append(1)
+        return np.mean((p.ravel() - labels.ravel()) ** 2)
+
+    def engine(**kwargs):
+        return Okapi(paths, tmp_path / "labels.npy", 4, 2, 2,
+                     backend="numpy", seed=7, objective_functions=(loss,), objectives=(minimize,), **kwargs)
+
+    gp = engine()
+    assert seed_from_correlations(gp) == len(calls) == 139
+    assert len(gp.population) == len(gp.fitnesses) == 4
+    gp.train(1)
+    assert gp.pareto_trees and len(calls) > 139
+    limited = engine(max_nodes=1)
+    before = list(limited.population)
+    assert seed_from_correlations(limited) == 0
+    assert limited.population == before and limited.fitnesses is None
