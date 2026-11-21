@@ -1,5 +1,9 @@
 # OKAPI algorithm lab
 
+## Project aim and evidence for a change
+
+The lab develops general-purpose ensemble search and diagnostics. A controlled scenario can motivate and test a change. The remaining registered battery checks where the change transfers and where it introduces regressions. Before interpreting a campaign, state the attainable known tree or the exact scope of its oracle, what ordinary GP found at its measured budget, and how the fit-selected program generalizes on independent IID and available shifted data against the all-provider mean, ranked-prefix Top-N and regularized logistic stacking. A gain on a planted family supports that mechanism under those conditions. Report unresolved comparisons and regressions elsewhere alongside it.
+
 ## Required references for every new OKAPI experiment
 
 Run three controls on the same available expert outputs and labeled development rows: the unweighted arithmetic mean, ranked-prefix Top-N averaging, and regularized logistic stacking. For Top-N, rank the single providers by the experiment's primary metric in a deterministic order, score every equally weighted prefix from 1 through M on development data, and freeze the winning prefix and N before opening IID or shifted test labels. Use FusionBench’s shared `TopN` implementation and specify the metric, ranking/selection split, tie policy, chosen N and scoring cost. State the input transform and regularization of the stacker and the exact labels available to every policy. In fit-only GP comparisons all learned baselines get the identical fit rows; report any additional selection labels separately. Historical additions are labeled retrospective. [Retrospective Guided comparison](guided_topn/README.md)
