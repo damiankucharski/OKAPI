@@ -25,6 +25,7 @@ from okapi.population import choose_pareto_then_proximity
 BUDGETS = (160, 640)
 ARMS = ("native", "guided", "placebo")
 FAMILIES = ("two_pathways", "correlated")
+AVAILABLE_FAMILIES = (*FAMILIES, "weakest_link", "parity")
 SIZES = {"fit": 384, "validation": 256, "iid": 4096, "shift": 4096}
 
 
@@ -126,7 +127,7 @@ def trial(paths, yfile, seed, arm, shuffle_seed):
 
 def data(name, bank, split):
     native, shifted = _scenario_pair(name)
-    family = FAMILIES.index(name)
+    family = AVAILABLE_FAMILIES.index(name)
     seed = np.random.default_rng([bank, family, tuple(SIZES).index(split)])
     scenario = shifted if split == "shift" else native
     x, y, _ = scenario._generate(SIZES[split], seed)
@@ -138,11 +139,11 @@ def providers(x):
     return {f"p{j}.npy": x[:, j, 1:2] for j in range(x.shape[1])}
 
 
-def freeze_all(banks, optimizers):
+def freeze_all(banks, optimizers, families=FAMILIES):
     """No test or validation data is generated during this phase."""
     frozen = []
     orders = list(itertools.permutations(ARMS))
-    for name in FAMILIES:
+    for name in families:
         for bank in banks:
             x, y = data(name, bank, "fit")
             start = perf_counter()
@@ -161,7 +162,7 @@ def freeze_all(banks, optimizers):
                     yfile = Path(tmp) / "y.npy"
                     np.save(yfile, y)
                     io_s = perf_counter()-start
-                    shuffle_seed = np.random.SeedSequence([bank, FAMILIES.index(name), seed, 717]).generate_state(1)[0]
+                    shuffle_seed = np.random.SeedSequence([bank, AVAILABLE_FAMILIES.index(name), seed, 717]).generate_state(1)[0]
                     for arm in orders[(bank - 25100 + 3*search_index) % len(orders)]:
                         snapshots, initial = trial(paths, yfile, seed, arm, int(shuffle_seed))
                         for point in snapshots.values():
@@ -231,10 +232,11 @@ def main():
     parser.add_argument("--out", type=Path, default=Path("experiments/guided/results"))
     parser.add_argument("--banks", nargs="+", type=int, default=list(range(25100,25112)))
     parser.add_argument("--optimizer-seeds", nargs="+", type=int, default=[311,751])
+    parser.add_argument("--families", nargs="+", choices=AVAILABLE_FAMILIES, default=FAMILIES)
     args = parser.parse_args()
     logger.disable("okapi")
     with threadpool_limits(limits=1):
-        frozen = freeze_all(args.banks, args.optimizer_seeds)
+        frozen = freeze_all(args.banks, args.optimizer_seeds, args.families)
         frame = evaluate(frozen)
     args.out.mkdir(parents=True, exist_ok=True)
     frame.to_csv(args.out / "runs.csv", index=False)
