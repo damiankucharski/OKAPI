@@ -30,6 +30,17 @@ def _programs(n_inputs: int) -> tuple[Program, ...]:
     return tuple(sorted(extend((), terms), key=lambda p: (sum(map(len, p)), p)))
 
 
+def small_lattice_programs(n_inputs: int) -> tuple[Program, ...]:
+    """Return every nonconstant monotone min/max program for 1–4 inputs.
+
+    Each immutable tuple contains the minimal conjunctions in a max-of-mins
+    program. Programs are sorted by literal count, then lexicographically.
+    """
+    if isinstance(n_inputs, (bool, np.bool_)) or not isinstance(n_inputs, (int, np.integer)) or not 1 <= n_inputs <= 4:
+        raise ValueError("n_inputs must be an integer from 1 through 4")
+    return _programs(int(n_inputs))
+
+
 def _probabilities(values):
     array = np.asarray(values)
     if array.ndim != 2 or not 1 <= array.shape[1] <= 4:
@@ -67,7 +78,7 @@ def fit_small_lattice(probabilities, y) -> SmallLattice:
     target = np.asarray(y)
     if len(scores) == 0 or target.shape != (len(scores),) or target.dtype.kind not in "biuf" or not np.isin(target, (0, 1)).all():
         raise ValueError("y must contain one binary label per row and at least one row")
-    candidates = _programs(scores.shape[1])
+    candidates = small_lattice_programs(scores.shape[1])
     minima = {term: scores[:, term].min(axis=1) for term in set().union(*candidates)}
 
     def brier(terms):
