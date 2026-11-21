@@ -1,6 +1,7 @@
 """Build bounded fusion-tree libraries from fit-time provider correlations."""
 
 from collections.abc import Mapping
+from functools import lru_cache
 from itertools import combinations
 
 import numpy as np
@@ -49,27 +50,58 @@ def _average_link_cuts(distances):
     return cuts
 
 
-def _binary_compositions(roots):
-    if len(roots) == 1:
-        yield roots[0]
+def _symbolic_compositions(operands):
+    """Enumerate symbolic expressions and their Boolean truth-table bit masks."""
+    if len(operands) == 1:
+        yield operands[0]
         return
     # The first group always belongs to the left subtree. This enumerates
     # each unordered bipartition once for both commutative operators.
-    rest = range(1, len(roots))
-    for count in range(len(roots) - 1):
+    rest = range(1, len(operands))
+    for count in range(len(operands) - 1):
         for chosen in combinations(rest, count):
-            left_roots = [roots[i] for i in (0, *chosen)]
-            right_roots = [roots[i] for i in rest if i not in chosen]
-            for left in _binary_compositions(left_roots):
-                for right in _binary_compositions(right_roots):
-                    for operator in (MIN, MAX):
-                        root = left.copy_subtree()
-                        root.add_child(operator([right.copy_subtree()]))
-                        yield root
+            left_inputs = [operands[i] for i in (0, *chosen)]
+            right_inputs = [operands[i] for i in rest if i not in chosen]
+            for left, left_table in _symbolic_compositions(left_inputs):
+                for right, right_table in _symbolic_compositions(right_inputs):
+                    yield (MIN, left, right), left_table & right_table
+                    yield (MAX, left, right), left_table | right_table
 
 
-def _templates_from_cuts(ids, values, cuts, shuffle_seed=None):
-    """Build the same min/max library for prespecified ordered provider groups."""
+@lru_cache(maxsize=4)
+def _cut_expressions(count):
+    # The bit at position j is the output at Boolean assignment j. The plan
+    # is independent of all predictions, group membership and labels.
+    variables = []
+    for operand in range(count):
+        truth_table = sum(1 << row for row in range(1 << count) if row & (1 << operand))
+        variables.append((operand, truth_table))
+    return tuple(_symbolic_compositions(variables))
+
+
+def _expression_root(expression, groups):
+    if isinstance(expression, int):
+        return groups[expression].copy_subtree()
+    op, left, right = expression
+    root = _expression_root(left, groups)
+    root.add_child(op([_expression_root(right, groups)]))
+    return root
+
+
+def _binary_compositions(roots):
+    """Yield every unordered binary min/max tree over the supplied group roots in historical order."""
+    if len(roots) == 1:
+        yield roots[0]
+        return
+    # This historical helper accepts arbitrary arity and yields lazily. It
+    # needs only expression order, so avoid computing unbounded truth tables.
+    operands = [(i, 0) for i in range(len(roots))]
+    for expression, _ in _symbolic_compositions(operands):
+        yield _expression_root(expression, roots)
+
+
+def _templates_from_cuts(ids, values, cuts, shuffle_seed=None, *, deduplicate=False, eligible=None):
+    """Build the min/max library for prespecified ordered provider groups."""
     order = np.arange(len(ids)) if shuffle_seed is None else np.random.default_rng(shuffle_seed).permutation(len(ids))
     trees = []
     for count in range(1, 5):
@@ -80,14 +112,22 @@ def _templates_from_cuts(ids, values, cuts, shuffle_seed=None):
             if len(leaves) > 1:
                 root.add_child(MEAN(leaves[1:]))
             roots.append(root)
-        trees.extend(Tree(root) for root in _binary_compositions(roots))
+        seen = set()
+        for expression, truth_table in _cut_expressions(count):
+            if deduplicate and truth_table in seen:
+                continue
+            tree = Tree(_expression_root(expression, roots))
+            if eligible is None or eligible(tree):
+                trees.append(tree)
+                if deduplicate:
+                    seen.add(truth_table)
     return trees
 
 
 def correlation_templates(
-    providers: Mapping[int | str, np.ndarray], *, shuffle_seed: int | None = None,
+    providers: Mapping[int | str, np.ndarray], *, shuffle_seed: int | None = None, deduplicate: bool = False,
 ) -> list[Tree]:
-    """Return 135 OKAPI trees using only binary fit predictions.
+    """Build a library of up to 135 OKAPI trees using only binary fit predictions.
 
     Supply four or more row-aligned positive-class probability arrays, each
     shaped (N,) or (N, 1), with at least two rows. Fit values follow the first
@@ -100,7 +140,17 @@ def correlation_templates(
     The four blocks contain 1, 2, 12 and 120 trees including equivalent
     functions. Every tree owns its nodes. A shuffle seed replaces provider
     assignments with one fixed permutation across all cuts after clustering.
+
+    With deduplicate=True, keep only the first tree per Boolean truth table
+    within each cut. Thresholding min/max commutes with AND/OR, so every
+    discarded composition agrees at all finite real group scores when node
+    postprocessing is the identity. A nonlinear per-node postprocessor can
+    break equivalence between parenthesizations. The default returns all 135 trees.
     """
+    return _correlation_templates(providers, shuffle_seed, deduplicate)
+
+
+def _correlation_templates(providers, shuffle_seed, deduplicate, eligible=None):
     if len(providers) < 4:
         raise ValueError("At least four providers are required")
     ids = list(providers)
@@ -116,10 +166,10 @@ def correlation_templates(
     dtype = np.result_type(np.float32, *(array.dtype for array in arrays))
     values = [(array if array.shape == shape else array.reshape(shape)).astype(dtype, copy=False) for array in arrays]
     cuts = _average_link_cuts(_correlation_distances(np.column_stack(values)))
-    return _templates_from_cuts(ids, values, cuts, shuffle_seed)
+    return _templates_from_cuts(ids, values, cuts, shuffle_seed, deduplicate=deduplicate, eligible=eligible)
 
 
-def seed_from_correlations(engine, *, shuffle_seed: int | None = None) -> int:
+def seed_from_correlations(engine, *, shuffle_seed: int | None = None, deduplicate: bool = False) -> int:
     """Offer fit-only correlation templates to a NumPy OKAPI population.
 
     Call after constructing the engine and before training. Existing operator
@@ -130,14 +180,18 @@ def seed_from_correlations(engine, *, shuffle_seed: int | None = None) -> int:
 
     The templates assume binary probabilities and node postprocessing that
     leaves these probabilities unchanged. Ordinary GP training proceeds with
-    its usual selection after this explicit initialization.
+    its usual selection after this explicit initialization. With deduplicate=True,
+    score only the first feasible representative of each min/max truth table
+    per cut. This preserves the attainable template scores under identity
+    postprocessing. Candidate multiplicities and subsequent GP search can change.
     """
     if Backend.get_backend() is not NumpyBackend:
         raise ValueError("Correlation initialization requires the NumPy backend")
-    proposals = [
-        tree for tree in correlation_templates(engine.train_tensors, shuffle_seed=shuffle_seed)
-        if engine._within_caps(tree) and all(type(op) in engine.allowed_ops for op in tree.op_nodes)
-    ]
+
+    def eligible(tree):
+        return engine._within_caps(tree) and all(type(op) in engine.allowed_ops for op in tree.op_nodes)
+
+    proposals = _correlation_templates(engine.train_tensors, shuffle_seed, deduplicate, eligible)
     if not proposals:
         return 0
     pool = engine.population + proposals
