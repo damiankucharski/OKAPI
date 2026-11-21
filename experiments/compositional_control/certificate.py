@@ -35,6 +35,15 @@ def verify():
     ]
     assert covariances == [Fraction(3, 32)] * 4 + [0, 0]
 
+    # The two opposite positive corners and two opposite negative corners
+    # have identical summed feature vectors. Affine scores must share their sum.
+    np.testing.assert_array_equal(
+        bits[[0b110000, 0b001100]].sum(axis=0),
+        bits[[0b101000, 0b010100]].sum(axis=0),
+    )
+    score = bits[:, :4] @ [2, 2, 1, 1] - 3.5
+    assert Fraction(int(np.sum((score >= 0) != target)), 64) == Fraction(1, 16)
+
     scores = {}
     for name, aggregate in (("min", np.min), ("max", np.max)):
         errors = []

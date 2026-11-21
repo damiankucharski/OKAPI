@@ -61,3 +61,29 @@ def test_invalid_rebinding_leaves_parent_intact(path, slot, new_id, tensor, erro
     with pytest.raises(error):
         tree_with_operand_provider(tree, path, slot, new_id, tensor)
     assert tree.structural_key() == source_key
+
+
+@pytest.mark.parametrize("new_type", [
+    "MEAN", "MIN", "MAX", "WEIGHTED_MEAN", "FAR_THRESHOLD", "CLOSE_THRESHOLD",
+])
+def test_type_and_operand_edits_commute_with_the_same_parameter_draws(new_type):
+    from okapi import operators
+    from okapi.mutation import tree_with_operator_type
+    from okapi.random_state import use_rng
+
+    source, *_ = _source()
+    new = np.array([.1, .95])
+    node_type = getattr(operators, new_type)
+    typed = np.random.RandomState(83)
+    rebound = np.random.RandomState(83)
+    with use_rng(typed):
+        first = tree_with_operator_type(source, (0,), node_type)
+        type_then_operand = tree_with_operand_provider(first, (0,), 0, "new", new)
+    with use_rng(rebound):
+        first = tree_with_operand_provider(source, (0,), 0, "new", new)
+        operand_then_type = tree_with_operator_type(first, (0,), node_type)
+    assert type_then_operand.structural_key() == operand_then_type.structural_key()
+    assert [type(op) for op in type_then_operand.op_nodes] == [type(op) for op in operand_then_type.op_nodes]
+    np.testing.assert_array_equal(type_then_operand.predict(), operand_then_type.predict())
+    np.testing.assert_array_equal(typed.get_state()[1], rebound.get_state()[1])
+    assert typed.get_state()[2:] == rebound.get_state()[2:]
