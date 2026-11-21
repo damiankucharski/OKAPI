@@ -1,5 +1,9 @@
 # OKAPI algorithm lab
 
+## Required references for every new OKAPI experiment
+
+Run three controls on the same available expert outputs and labeled development rows: the unweighted arithmetic mean, ranked-prefix Top-N averaging, and regularized logistic stacking. For Top-N, rank the single providers by the experiment's primary metric in a deterministic order, score every equally weighted prefix from 1 through M on development data, and freeze the winning prefix and N before opening IID or shifted test labels. Use FusionBench’s shared `TopN` implementation and specify the metric, ranking/selection split, tie policy, chosen N and scoring cost. State the input transform and regularization of the stacker and the exact labels available to every policy. In fit-only GP comparisons all learned baselines get the identical fit rows; report any additional selection labels separately. Historical additions are labeled retrospective. [Retrospective Guided comparison](guided_topn/protocol.md)
+
 ## Initial priorities and decision criteria
 
 | Priority | Mechanism and current evidence | Cost | Risk and decision |
