@@ -29,3 +29,7 @@ with use_postprocessing_function(model_postprocessor):
 
 
 The public FusionBench adapter at 03fd9bb now enters the task's postprocessing scope on prediction. Repeating the original committee/multiclass sequence with ordinary predict calls produced zero changed rows, zero maximum probability difference, and the same full Brier of .28049033 before and after training the second model. [Public adapter fix](https://github.com/damiankucharski/FusionBench/commit/03fd9bb) · [Audit of earlier OKAPI experiments](historical_impact.md)
+
+## Multiclass oracle correction
+
+An independent Gaussian-density calculation confirmed that the historical reference posterior used the wrong scale in Saturated and MulticlassCommittee. The figure and headline above use observed labels. Archived squared distances to the two historical reference vectors require the corrected posterior. [Affected artifacts, derivation and native representability check](multiclass_posterior.md)
