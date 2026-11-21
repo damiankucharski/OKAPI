@@ -312,6 +312,59 @@ class MeanNode(OperatorNode):
         return MeanNode(children)
 
 
+class ProbabilisticXorNode(OperatorNode):
+    """Probability of an odd number of independent Bernoulli events.
+
+    Supply finite positive-class probabilities in [0, 1] with equal shapes
+    (N,) or (..., 1). The direct op(x) interface stacks these arrays along a
+    leading provider axis. The parent's current value counts as an input in a
+    tree. With one input this is the identity.
+    Repeated occurrences count as independent draws with the same probability:
+    two copies of p give 2*p*(1-p). If both refer to the same realized event,
+    that independence assumption fails.
+    """
+
+    @staticmethod
+    def _reduce(inputs):
+        shape = None
+        odd = even = None
+        for value in inputs:
+            current_shape = B.shape(value)
+            if not current_shape or (len(current_shape) > 1 and current_shape[-1] != 1):
+                raise ValueError("Probabilistic XOR requires single-channel positive-class probabilities shaped (N,) or (..., 1)")
+            if shape is not None and current_shape != shape:
+                raise ValueError("All probabilistic XOR inputs must have the same shape")
+            shape = current_shape
+            probability = 1.0 * value  # Promote hard 0/1 inputs and keep a private buffer.
+            complement = 1.0 - probability
+            if odd is None:
+                odd, even = probability, complement
+            else:
+                # Keep even mass explicitly. Recovering it as 1-odd can erase
+                # a small probability when an intermediate odd mass rounds to 1.
+                odd, even = odd * complement + even * probability, even * complement + odd * probability
+        if odd is None:
+            raise ValueError("Probabilistic XOR requires at least one input")
+        return odd
+
+    def op(self, x):
+        return self._reduce(iter(x))
+
+    def calculate(self):
+        return PF(self._reduce(self._stream_inputs()))
+
+    @staticmethod
+    def create_node(children):
+        return ProbabilisticXorNode(children)
+
+    def copy(self):
+        return ProbabilisticXorNode(None)
+
+    @property
+    def code(self):
+        return "PXOR"
+
+
 class TrimmedMeanNode(OperatorNode):
     """Drop one minimum and maximum per coordinate, then average the rest.
 
@@ -975,7 +1028,7 @@ def _node_parameters(node):
     kind = type(node)
     if kind is ValueNode:
         return (_scalar_key(node.id),)
-    if kind in (MeanNode, MinNode, MaxNode, TrimmedMeanNode):
+    if kind in (MeanNode, MinNode, MaxNode, TrimmedMeanNode, ProbabilisticXorNode):
         return ()
     if kind in (WeightedMeanNode, WeightedLogitMeanNode):
         return tuple(_scalar_key(weight) for weight in node._weights)

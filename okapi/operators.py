@@ -12,6 +12,7 @@ from okapi.node import (
     MaxNode,
     MeanNode,
     MinNode,
+    ProbabilisticXorNode,
     TrimmedMeanNode,
     WeightedLogitMeanNode,
     WeightedMeanNode,
@@ -22,6 +23,7 @@ MIN = MinNode
 MAX = MaxNode
 MEAN = MeanNode
 TRIMMED_MEAN = TrimmedMeanNode
+PROBABILISTIC_XOR = ProbabilisticXorNode
 WEIGHTED_MEAN = WeightedMeanNode
 FAR_THRESHOLD = FarThresholdNode
 CLOSE_THRESHOLD = CloseThresholdNode
