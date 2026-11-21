@@ -1,4 +1,4 @@
-"""Untrained prevalence and privileged population references on the fixed transfer splits."""
+"""Source prevalence and privileged population references on the fixed transfer splits."""
 
 import argparse
 from pathlib import Path
