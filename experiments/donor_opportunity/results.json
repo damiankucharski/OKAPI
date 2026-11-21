@@ -1,0 +1,196 @@
+{
+  "fixture": {
+    "tied_uncapped": {
+      "target": 63624,
+      "parent_signatures": [
+        63736,
+        61440
+      ],
+      "parent_weights": [
+        "1/2",
+        "1/2"
+      ],
+      "tournament_productive": "1/24",
+      "uniform_productive": "1/24",
+      "productive_parent_pairs": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          0
+        ]
+      ],
+      "pair_probabilities": [
+        [
+          "0",
+          "1/12"
+        ],
+        [
+          "1/12",
+          "0"
+        ]
+      ],
+      "physical_draw_paths": 34,
+      "distinct_ordered_child_signatures": 24
+    },
+    "unequal_uncapped": {
+      "target": 63624,
+      "parent_signatures": [
+        63736,
+        61440
+      ],
+      "parent_weights": [
+        "0",
+        "1"
+      ],
+      "tournament_productive": "0",
+      "uniform_productive": "1/24",
+      "productive_parent_pairs": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          0
+        ]
+      ],
+      "pair_probabilities": [
+        [
+          "0",
+          "1/12"
+        ],
+        [
+          "1/12",
+          "0"
+        ]
+      ],
+      "physical_draw_paths": 34,
+      "distinct_ordered_child_signatures": 24
+    },
+    "tied_cap5": {
+      "target": 63624,
+      "parent_signatures": [
+        63736,
+        61440
+      ],
+      "parent_weights": [
+        "1/2",
+        "1/2"
+      ],
+      "tournament_productive": "0",
+      "uniform_productive": "0",
+      "productive_parent_pairs": [],
+      "pair_probabilities": [
+        [
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0"
+        ]
+      ],
+      "physical_draw_paths": 24,
+      "distinct_ordered_child_signatures": 16
+    }
+  },
+  "archive_6603_821_G15": {
+    "matched": {
+      "target": 60096,
+      "parent_signatures": [
+        65280,
+        65280,
+        65280,
+        65280
+      ],
+      "parent_weights": [
+        "1/4",
+        "1/4",
+        "1/4",
+        "1/4"
+      ],
+      "tournament_productive": "0",
+      "uniform_productive": "0",
+      "productive_parent_pairs": [],
+      "pair_probabilities": [
+        [
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0",
+          "0"
+        ]
+      ],
+      "physical_draw_paths": 80,
+      "distinct_ordered_child_signatures": 1,
+      "fit_calls_before": 76
+    },
+    "additive": {
+      "target": 59616,
+      "parent_signatures": [
+        61680,
+        61680,
+        61440,
+        61440
+      ],
+      "parent_weights": [
+        "5/12",
+        "5/12",
+        "1/12",
+        "1/12"
+      ],
+      "tournament_productive": "0",
+      "uniform_productive": "0",
+      "productive_parent_pairs": [],
+      "pair_probabilities": [
+        [
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0",
+          "0"
+        ]
+      ],
+      "physical_draw_paths": 80,
+      "distinct_ordered_child_signatures": 4,
+      "fit_calls_before": 73
+    }
+  }
+}
