@@ -111,15 +111,17 @@ def fit_multiclass_affine_tree(
         offset = centered.mean(axis=0)
         center = inputs[0] + offset
         centered -= offset
-        variances = np.square(centered).mean(axis=0)
-        scales = np.sqrt(variances)
-        penalty_weights = (float(l2_strength) / rows) * (variances if mode == "diagonal" else variances[:, :, None])
+        # Scale before squaring to handle valid, tiny provider probabilities.
+        peaks = np.max(np.abs(centered), axis=0)
+        scales = peaks * np.sqrt(np.square(centered / np.where(peaks > 0, peaks, 1.0)).mean(axis=0))
+        penalty_scales = scales if mode == "diagonal" else scales[:, :, None]
+        penalty_rate = float(l2_strength) / rows
         weights = np.zeros((providers, classes) if mode == "diagonal" else (providers, classes, classes))
         bias = np.zeros(classes)
         evaluations = 0
 
         def penalty(w):
-            return float(np.sum(penalty_weights * np.square(w)))
+            return penalty_rate * float(np.sum(np.square(w * penalty_scales))) if penalty_rate else 0.0
 
         def score(prediction):
             nonlocal evaluations
@@ -183,12 +185,14 @@ def fit_multiclass_affine_tree(
                 for distance in (step, -step):
                     if evaluations >= search_cap:
                         break
-                    logits[:, out] = previous + distance * direction
                     deduction = current_penalty
                     if index is not None:
-                        old = weights[index]
-                        new = old + distance / scale
-                        deduction += float(l2_strength) / rows * variances[source] * (new - old) * (new + old)
+                        with np.errstate(over="ignore"):
+                            proposed = weights[index] + distance / scale
+                        if not np.isfinite(proposed):
+                            continue
+                        deduction += penalty_rate * distance * (2 * (weights[index] * scale) + distance)
+                    logits[:, out] = previous + distance * direction
                     value = trial_rank(logits, deduction)
                     if value > best_rank:
                         best_rank, best_distance = value, distance

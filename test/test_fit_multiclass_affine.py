@@ -114,3 +114,16 @@ def test_discontinuous_callback_budget_and_reproducibility():
 def test_invalid_inputs(p, y, kwargs):
     with pytest.raises(ValueError):
         fit_multiclass_affine_tree([ValueNode(None, np.asarray(p), 0)], np.asarray(y), objective=brier_score, **kwargs)
+
+
+@pytest.mark.parametrize("strength", [0.0, 0.1])
+def test_tiny_probability_column_has_finite_standardized_penalty(strength):
+    y = np.tile([1, 2], 8)
+    p = np.full((len(y), 3), 0.5)
+    p[:, 0] = (y == 1) * 1e-165
+    tree, info = fit_multiclass_affine_tree([ValueNode(None, p, 0)], y, mode="full", objective=brier_score, max_evaluations=240, l2_strength=strength)
+    with use_postprocessing_function(scale_vector_to_sum_1):
+        assert brier_score(tree.predict(), y) == info["score"]
+    assert info["score"] > -0.05
+    scaled = tree.root.children[-1].coefficients[0, 0] * 0.5e-165
+    assert info["penalty"] == pytest.approx(strength / len(y) * np.square(scaled).sum())
