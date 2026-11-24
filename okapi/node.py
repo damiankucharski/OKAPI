@@ -682,8 +682,10 @@ class WeightedLogitMeanNode(OperatorNode):
     The Bayes-optimal fusion of calibrated detectors with per-model noise scales
     ``k_i`` is ``sigmoid(Sum (1/k_i) * logit p_i)`` -- i.e. this node *with* ``w_i =
     1/k_i`` -- which probability-space averaging and a single global temperature
-    cannot express. Weights are **free and non-negative**, deliberately *not*
-    normalised to 1: their scale is the effective temperature, so ``Sum w_i ~ K``
+    cannot express. Direct construction accepts **signed weights**, as used by
+    ``fit_pattern_tree``. Stock initialization and mutation produce non-negative
+    weights. Their sum is unconstrained and controls the effective temperature:
+    ``Sum w_i ~ K``
     recovers the independent-evidence logit *sum* and equal small weights recover
     ``LogitMeanNode`` (it is a strict superset). The parent input occupies slot 0
     and each child follows, mirroring ``WeightedMeanNode``; weights evolve via
@@ -724,13 +726,9 @@ class WeightedLogitMeanNode(OperatorNode):
         w = B.to_device(w, x)  # Ensure weights are on same device as input
         if B.shape(x)[-1] == 1:  # binary positive-probability channel -> logit space
             z = B.log(xc) - B.log(1.0 - xc)
-            m = B.sum(w * z, axis=0)
-            m = B.clip(m, -self._CLAMP, self._CLAMP)
-            return 1.0 / (1.0 + B.exp(-m))
+            return self._from_sum(B.sum(w * z, axis=0), True)
         # multiclass: weighted product rule (generalises the geometric mean); PF renormalises
-        m = B.sum(w * B.log(xc), axis=0)
-        m = B.clip(m, -self._CLAMP, self._CLAMP)
-        return B.exp(m)
+        return self._from_sum(B.sum(w * B.log(xc), axis=0), False)
 
     def calculate(self):
         self._weight_length_assertion()
@@ -746,9 +744,12 @@ class WeightedLogitMeanNode(OperatorNode):
                 running_sum = weighted
             else:
                 running_sum += weighted
-        m = B.clip(running_sum, -self._CLAMP, self._CLAMP)
-        result = 1.0 / (1.0 + B.exp(-m)) if binary else B.exp(m)
-        return PF(result)
+        return PF(self._from_sum(running_sum, binary))
+
+    @classmethod
+    def _from_sum(cls, running_sum, binary):
+        m = B.clip(running_sum, -cls._CLAMP, cls._CLAMP)
+        return 1.0 / (1.0 + B.exp(-m)) if binary else B.exp(m)
 
     def add_child(self, child_node: Node):
         logger.debug(f"Adding child to WeightedLogitMeanNode with {len(self._weights)} weights")
@@ -850,7 +851,10 @@ class BinaryAffineNode(OperatorNode):
                 raise ValueError("All binary affine inputs must have the same shape")
             shape = current_shape
             linear = linear + weight * self._feature(value)
-        linear = linear + self.intercept
+        return self._probability(linear + self.intercept)
+
+    @staticmethod
+    def _probability(linear):
         tail = B.exp(-abs(linear))
         p = ((linear >= 0) + (linear < 0) * tail) / (1.0 + tail)
         positive = B.clip(p, 1e-12, 1.0)
