@@ -1,4 +1,5 @@
 import os
+from hashlib import blake2s
 from struct import pack
 from typing import List, Optional, Sequence, TypeVar, Union, cast
 
@@ -914,6 +915,95 @@ class BinaryAffineNode(OperatorNode):
         return BinaryAffineNode(children, rng.normal(size=count), transform=rng.choice(("probability", "logit")))
 
 
+class MulticlassAffineNode(OperatorNode):
+    """Softmax of signed affine scores on raw multiclass provider probabilities.
+
+    The current parent value is provider zero and the children follow in order.
+    With diagonal coefficients, score c uses only each provider's probability of c.
+    Full coefficients are indexed by provider, input class, then output class.
+    The direct op accepts [providers, rows, classes] and returns float64
+    probabilities on the input device. Tree evaluation also applies the usual
+    per-operator postprocessor.
+    """
+
+    def __init__(self, children: Optional[Sequence[ValueNode]], coefficients, intercept, mode: str = "diagonal"):
+        if mode not in ("diagonal", "full"):
+            raise ValueError("Multiclass affine mode must be 'diagonal' or 'full'")
+        bias = np.array(intercept, dtype=np.float64, copy=True)
+        if bias.ndim != 1 or bias.size < 2 or not np.all(np.isfinite(bias)):
+            raise ValueError("Multiclass affine intercept must have one finite value per class, with at least two classes")
+        weights = np.array(coefficients, dtype=np.float64, copy=True)
+        per_provider = (bias.size,) if mode == "diagonal" else (bias.size, bias.size)
+        if weights.ndim != len(per_provider) + 1 or not len(weights) or weights.shape[1:] != per_provider:
+            raise ValueError(f"Multiclass affine expects a nonempty provider axis and per-provider shape {per_provider}")
+        if not np.all(np.isfinite(weights)):
+            raise ValueError("Multiclass affine coefficients must be finite")
+        if children is not None and (len(weights) != len(children) + 1 or not all(isinstance(child, ValueNode) for child in children)):
+            raise ValueError("Multiclass affine requires coefficients for the parent and each value-node child")
+        self.coefficients = weights
+        self.intercept = bias
+        self.mode = mode
+        super().__init__(children)
+
+    def op(self, x):
+        if x.ndim != 3 or x.shape[0] != len(self.coefficients) or x.shape[-1] != len(self.intercept):
+            raise ValueError("Multiclass affine inputs must have shape [providers, rows, classes] matching the parameters")
+        probabilities = x.astype(np.float64, copy=False) if isinstance(x, np.ndarray) else x.double()
+        weights = B.to_device(B.tensor(self.coefficients), probabilities)
+        bias = B.to_device(B.tensor(self.intercept), probabilities)
+        contributions = probabilities * weights[:, None, :] if self.mode == "diagonal" else probabilities @ weights
+        scores = B.sum(contributions, axis=0) + bias
+        exponentials = B.exp(scores - B.max(scores, axis=-1)[..., None])
+        return exponentials / B.sum(exponentials, axis=-1)[..., None]
+
+    @property
+    def code(self):
+        digest = blake2s(digest_size=6)
+        for parameter in (self.coefficients, self.intercept):
+            digest.update(parameter.astype("<f8", copy=False).tobytes())
+        return f"MCA[{self.mode},{len(self.coefficients)}x{len(self.intercept)},{digest.hexdigest()}]"
+
+    def copy(self):
+        return MulticlassAffineNode(None, self.coefficients, self.intercept, self.mode)
+
+    @staticmethod
+    def create_node(children):
+        # A bare operator has no parent yet. A bound child supplies the class count.
+        if not children or not isinstance(children[0], ValueNode) or getattr(children[0].value, "ndim", 0) != 2:
+            raise ValueError("Multiclass affine initialization needs a bound child with [rows, classes] probabilities")
+        classes = children[0].value.shape[-1]
+        weights = current_rng().normal(size=(len(children) + 1, classes))
+        return MulticlassAffineNode(children, weights, np.zeros(classes))
+
+    def mutate_params(self, mutation_strength=0.1):
+        if not np.isfinite(mutation_strength) or mutation_strength < 0:
+            raise ValueError("Mutation strength must be finite and nonnegative")
+        if mutation_strength == 0:
+            return False
+        rng = current_rng()
+        weights = self.coefficients + rng.normal(scale=mutation_strength, size=self.coefficients.shape)
+        bias = self.intercept + rng.normal(scale=mutation_strength, size=self.intercept.shape)
+        if not np.all(np.isfinite(weights)) or not np.all(np.isfinite(bias)):
+            return False
+        changed = not np.array_equal(weights, self.coefficients) or not np.array_equal(bias, self.intercept)
+        self.coefficients, self.intercept = weights, bias
+        return changed
+
+    def add_child(self, child_node):
+        if not isinstance(child_node, ValueNode):
+            raise ValueError("Multiclass affine children must be value nodes")
+        if len(self.coefficients) == len(self.children) + 1:
+            extra = current_rng().normal(size=(1, *self.coefficients.shape[1:]))
+            self.coefficients = np.concatenate((self.coefficients, extra))
+        super().add_child(child_node)
+
+    def remove_child(self, child_node):
+        slot = self.children.index(child_node) + 1
+        removed = super().remove_child(child_node)
+        self.coefficients = np.delete(self.coefficients, slot, axis=0)
+        return removed
+
+
 class MaxNode(OperatorNode):
     """
     Represents a Max Node in a computational tree.
@@ -1162,6 +1252,8 @@ def _node_parameters(node):
         return tuple(_scalar_key(weight) for weight in node._weights)
     if kind is BinaryAffineNode:
         return tuple(_scalar_key(value) for value in (node.transform, node.intercept, *node.coefficients))
+    if kind is MulticlassAffineNode:
+        return node.mode, node.coefficients.shape, node.coefficients.tobytes(), node.intercept.tobytes()
     if kind is LogitMeanNode:
         return _scalar_key(node.temperature), _scalar_key(node.shift)
     if kind in (ThresholdNode, CloseThresholdNode, FarThresholdNode):

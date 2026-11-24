@@ -13,6 +13,7 @@ from okapi.node import (
     MaxNode,
     MeanNode,
     MinNode,
+    MulticlassAffineNode,
     ProbabilisticXorNode,
     TrimmedMeanNode,
     WeightedLogitMeanNode,
@@ -31,3 +32,4 @@ CLOSE_THRESHOLD = CloseThresholdNode
 LOGIT_MEAN = LogitMeanNode
 WEIGHTED_LOGIT_MEAN = WeightedLogitMeanNode
 BINARY_AFFINE = BinaryAffineNode
+MULTICLASS_AFFINE = MulticlassAffineNode
