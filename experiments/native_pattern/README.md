@@ -30,3 +30,15 @@ In the completed experiment one validation-selected native tree scored 0.18388 m
 ## Can validation perturbations choose a more robust tree?
 
 `okapi.transfer_selection.select_transfer_candidate` accepts clean and perturbed validation fitness values and returns one candidate. `shrink_subtree_weights` copies a fitted logit head, scales only the appended subtree coefficients and preserves each base-provider coefficient. On a frozen FusionBench grid across 19 scenarios, eight banks per scenario, three development label-noise levels and six shared deployment disturbances, this variant scored 0.30487 full-class Brier. The previous clean-validation policy scored 0.30376. The paired difference was +0.00112 (95% interval −0.00026 to +0.00249). This experimental selector missed its improvement criterion. Use the previous policy as the reference when testing further changes. [Protocol, results and independent replay](https://github.com/damiankucharski/fusionbench/blob/05fa4ec/docs/ensemble-study/transfer-grid/README.md)
+
+## Regularize the input weights during native tree fitting
+
+In `fit_pattern_tree`, set `l2_strength=0.25` to reproduce the fixed coefficient used with Brier skill in the FusionBench study. Each scalar search step evaluates the user-supplied objective with a deduction proportional to the sum of squared weights times their fit-set logit variances, divided by the fit sample size. For multiclass probabilities, the variances are computed after subtracting the row mean across class log probabilities. The intercept is unpenalized. The returned `info` includes the raw score, penalty, and penalized score when enabled. A different numerical scale for the objective changes the relative strength of the penalty.
+
+```python
+tree, info = fit_pattern_tree(
+    roots, labels, objective=brier_skill, multiclass=False, l2_strength=0.25
+)
+```
+
+In an independent confirmation over 19 scenarios and ten replicates per scenario, the regularized procedure lowered full-class Brier from 0.21524 to 0.20673 (paired difference −0.00851, 95% CI −0.01079 to −0.00624). It improved 18 of 19 family means on the fixed joint score. Providing additional pairwise MIN features in a separate exploratory round gave an inconclusive change of −0.00069. On the nine canonical target shifts the regularized procedure and probability stacking scored 0.30359 and 0.30344. On eight overlapping handwritten-digit splits it tied the previous method on average, and probability stacking won seven splits. FusionBench exposes this configuration under `okapi_native_pattern_l2`. [Three registered rounds, code, costs and stored trees](https://github.com/damiankucharski/fusionbench/blob/55133233c8557e76a76c706cd1779acab3bfbc8e/docs/ensemble-study/pattern-iterations/README.md)
