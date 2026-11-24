@@ -18,7 +18,7 @@ def _prediction(coordinates):
     return mass / mass.sum(axis=1, keepdims=True)
 
 
-def select_pattern_features(archive, provider_predictions, flat_prediction, labels, *, objective):
+def select_pattern_features(archive, provider_predictions, flat_prediction, labels, *, objective, report_indices=False):
     """Greedily screen up to three complete GP trees against a fitted prediction.
 
     Supply ordered (tree, prediction) pairs from the discovery sample, raw
@@ -33,6 +33,8 @@ def select_pattern_features(archive, provider_predictions, flat_prediction, labe
     fixed signed weight. Accept the largest strict score increase, preferring
     the first archive entry and then the first trial weight on exact ties.
     Returns selected trees in addition order plus search counts and scores.
+    With report_indices=True, evaluations_by_archive_index counts trial
+    objective calls per unique eligible feature, excluding the initial score.
     """
     flat = np.asarray(flat_prediction, dtype=float)
     if flat.ndim != 2 or len(flat) != len(labels) or min(flat.shape) < 1:
@@ -82,22 +84,26 @@ def select_pattern_features(archive, provider_predictions, flat_prediction, labe
     current = _coordinates(checked(flat))
     initial_score = best_score = score(flat)
     eligible = len(candidates)
+    by_index = dict.fromkeys(candidates, 0) if report_indices else None
     selected = []
     for _ in range(min(3, eligible)):
         winner = None
         for i, feature in candidates.items():
+            before = calls
             for weight in (0.25, -0.25, 1.0, -1.0):
                 trial = current + weight * feature
                 value = score(_prediction(trial))
                 if value > best_score:
                     winner = i, weight, trial
                     best_score = value
+            if by_index is not None:
+                by_index[i] += calls - before
         if winner is None:
             break
         i, weight, current = winner
         del candidates[i]
         selected.append({"archive_index": i, "weight": weight, "score": best_score})
-    return [archive[item["archive_index"]][0] for item in selected], {
+    info = {
         "archive_programs": len(archive),
         "non_singletons": non_singletons,
         "unique_novel_features": eligible,
@@ -105,3 +111,6 @@ def select_pattern_features(archive, provider_predictions, flat_prediction, labe
         "selected": selected,
         "evaluations": calls,
     }
+    if by_index is not None:
+        info["evaluations_by_archive_index"] = by_index
+    return [archive[item["archive_index"]][0] for item in selected], info
