@@ -62,7 +62,7 @@ def select_pattern_features(archive, provider_predictions, flat_prediction, labe
         non_singletons += 1
         p = checked(output)
         signature = p.flat[probes]
-        close = np.all(np.abs(signatures[:len(seen)] - signature) <= 1e-12, axis=1)
+        close = np.all(np.abs(signatures[: len(seen)] - signature) <= 1e-12, axis=1)
         if any(np.all(np.abs(seen[j] - p) <= 1e-12) for j in np.flatnonzero(close)):
             continue
         signatures[len(seen)] = signature
