@@ -1,10 +1,11 @@
 import numpy as np
 import pytest
 
+from okapi.backend.backend import Backend
 from okapi.functions import scale_vector_to_sum_1
 from okapi.globals import _passthrough, use_postprocessing_function
 from okapi.node import BinaryAffineNode, MeanNode, ValueNode, WeightedLogitMeanNode
-from okapi.pattern_logit import fit_pattern_tree
+from okapi.pattern_logit import _feature_variance, fit_pattern_tree
 from okapi.tree import Tree
 
 
@@ -132,3 +133,112 @@ def test_one_native_evaluation_per_input(monkeypatch):
     x = np.array([[0.2], [0.8]])
     fit_pattern_tree([ValueNode(None, x, i) for i in range(3)], np.array([0, 1]), objective=lambda p, y: 0.0)
     assert calls == [0, 1, 2]
+
+
+@pytest.mark.parametrize("multi,expected_weights,expected_calls", [
+    (False, [-0.578125, -0.46875], 136),
+    (True, [-0.015625, -0.3125], 82),
+])
+def test_zero_strength_preserves_original_search(multi, expected_weights, expected_calls):
+    rng = np.random.default_rng(319)
+    x = [rng.dirichlet([2, 2, 2], size=30) if multi else rng.uniform(0.05, 0.95, (30, 1)) for _ in range(2)]
+    y = rng.integers(3 if multi else 2, size=30)
+    target = np.eye(3)[y] if multi else y[:, None]
+    roots = [ValueNode(None, col, i) for i, col in enumerate(x)]
+    traces = []
+    for kwargs in ({}, {"l2_strength": 0.0}):
+        predictions = []
+
+        def score(p, labels, predictions=predictions):
+            predictions.append(p.copy())
+            return -np.mean((p - target) ** 2)
+
+        tree, info = fit_pattern_tree(roots, y, objective=score, multiclass=multi, **kwargs)
+        head = tree.root.children[-1]
+        assert (head._weights if multi else head.coefficients) == expected_weights
+        if not multi:
+            assert head.intercept == 0.1875
+        assert info.keys() == {"score", "evaluations"}
+        assert len(predictions) == info["evaluations"] == expected_calls
+        traces.append(predictions)
+    np.testing.assert_array_equal(*traces)
+
+
+@pytest.mark.parametrize("multi", [False, True])
+def test_l2_shrinks_separable_fit_and_matches_two_backends(multi, monkeypatch):
+    pytest.importorskip("torch")
+    monkeypatch.setattr(Backend, "_current_backend", Backend.get_backend())
+    y = np.tile(np.arange(3 if multi else 2), 8)
+    if multi:
+        x = np.full((len(y), 3), 0.1)
+        x[np.arange(len(y)), y] = 0.8
+        log_p = np.log(x)
+        variance = (log_p - log_p.mean(axis=1, keepdims=True)).var(axis=0).mean()
+    else:
+        x = np.where(y[:, None], 0.8, 0.2)
+        variance = np.log(x / (1 - x)).var()
+    target = np.eye(3)[y] if multi else y[:, None]
+    fitted = []
+    for name in ("numpy", "torch"):
+        Backend.set_backend(name)
+        backend = Backend.get_backend()
+        root = ValueNode(None, backend.tensor(x), "provider")
+        calls = []
+
+        def score(p, labels, calls=calls, backend=backend):
+            calls.append(1)
+            return -float(np.mean(np.square(backend.to_numpy(p) - target)))
+
+        slopes = []
+        for strength in (0.0, 2.0):
+            calls.clear()
+            tree, info = fit_pattern_tree([root], y, objective=score, multiclass=multi, l2_strength=strength)
+            assert info["evaluations"] == len(calls)
+            head = tree.root.children[-1]
+            slopes.append((head._weights if multi else head.coefficients)[0])
+            if strength:
+                with use_postprocessing_function(scale_vector_to_sum_1 if multi else _passthrough):
+                    pred = backend.to_numpy(tree.predict())
+                expected = strength / len(y) * slopes[-1] ** 2 * variance
+                assert info["penalty"] == pytest.approx(expected)
+                assert info["score"] == -float(np.mean(np.square(pred - target)))
+                assert info["penalized_score"] == info["score"] - info["penalty"]
+                fitted.append(pred)
+        assert 0 < slopes[1] < slopes[0]
+    np.testing.assert_allclose(*fitted, atol=1e-13)
+
+
+def test_multiclass_penalty_ignores_per_row_common_log_offsets():
+    logits = np.array([[0.2, 1.4, 2.1], [0.0, 1.0, 4.1], [-2.5, 0.5, 0.94]])
+    shifted = logits + np.array([[2.0], [-6.0], [21.0]])
+    expected = (logits - logits.mean(axis=1, keepdims=True)).var(axis=0).mean()
+    assert _feature_variance(logits, True) == pytest.approx(expected)
+    assert _feature_variance(shifted, True) == pytest.approx(expected)
+
+
+def test_regularized_discontinuous_score_and_unpenalized_intercept():
+    y = np.repeat([0, 1], 8)
+    x = np.where(y[:, None], 0.1, 0.9)
+
+    def threshold_accuracy(p, labels):
+        return int(np.sum((p[:, 0] >= 0.7) == labels))
+
+    tree, info = fit_pattern_tree([ValueNode(None, x, 0)], y, objective=threshold_accuracy, l2_strength=1.0)
+    assert info["score"] == threshold_accuracy(tree.predict(), y) == len(y)
+    assert 0 < info["penalty"] < info["score"]
+    # With a constant logit, only the intercept is needed to fit prevalence.
+    root = ValueNode(None, np.full((4, 1), 0.5), 0)
+
+    def brier(p, labels):
+        return -np.mean((p[:, 0] - labels) ** 2)
+
+    tree, info = fit_pattern_tree([root], np.array([0, 1, 1, 1]), objective=brier, l2_strength=100.0)
+    assert info["penalty"] == 0.0 and info["score"] == info["penalized_score"]
+    np.testing.assert_allclose(tree.predict(), 0.75, atol=0.002)
+
+
+@pytest.mark.parametrize("strength", [-0.1, np.inf, np.nan, "3", [0.1]])
+def test_l2_requires_finite_nonnegative_scalar(strength):
+    root = ValueNode(None, np.array([[0.5]]), 0)
+    with pytest.raises(ValueError, match="l2_strength"):
+        fit_pattern_tree([root], np.array([1]), objective=lambda p, y: 0.0, l2_strength=strength)

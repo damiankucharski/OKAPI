@@ -20,11 +20,26 @@ def _native_sum(columns, weights):
     return total
 
 
-def _search(columns, labels, objective, multiclass):
+def _feature_variance(column, multiclass):
+    # Compute population variances on the native device in float64. Removing
+    # each row's class mean makes the penalty invariant to common log offsets.
+    x = column.astype(np.float64, copy=False) if isinstance(column, np.ndarray) else column.double()
+    if multiclass:
+        x = x - x.mean(axis=1, keepdims=True)
+    deviation = x - x.mean(axis=0)
+    return float((deviation * deviation).mean())
+
+
+def _search(columns, labels, objective, multiclass, l2_strength):
     count = len(columns)
     evaluations = 0
+    variances = np.array([_feature_variance(col, multiclass) for col in columns]) if l2_strength else None
+    penalty_scale = l2_strength / len(labels)
 
-    def score(slope, bias):
+    def penalty(weights):
+        return penalty_scale * float(np.square(weights) @ variances)
+
+    def score(slope, bias, weights):
         nonlocal evaluations
         if multiclass:
             prediction = scale_vector_to_sum_1(WeightedLogitMeanNode._from_sum(slope, False))
@@ -34,12 +49,13 @@ def _search(columns, labels, objective, multiclass):
         value = float(objective(prediction, labels))
         if not np.isfinite(value):
             raise ValueError("objective must return a finite scalar")
-        return value
+        rank = value if variances is None else value - penalty(weights)
+        return rank, value
 
     weights = np.zeros(count)
     bias = 0.0
     slope = _native_sum(columns, weights)
-    current = score(slope, bias)
+    current, raw = score(slope, bias, weights)
     first = np.zeros(count)
     first[0] = 1.0
     starts = [first, *(np.full(count, total / count) for total in (1.0, 0.25, 0.5, 2.0, 4.0, count))]
@@ -50,9 +66,10 @@ def _search(columns, labels, objective, multiclass):
             continue
         seen.add(key)
         trial = _native_sum(columns, candidate)
-        value = score(trial, bias)
+        value, trial_raw = score(trial, bias, candidate)
         if value > current:
             weights, slope, current = candidate, trial, value
+            raw = trial_raw
 
     def poll(weight_direction, slope_direction, bias_direction, distances):
         """Evaluate both offsets from the same point, accepting strict improvement."""
@@ -62,7 +79,10 @@ def _search(columns, labels, objective, multiclass):
         for distance in distances:
             trial = slope if slope_direction is None else slope + distance * slope_direction
             trial_bias = bias + distance * bias_direction
-            value = score(trial, trial_bias)
+            trial_weights = weights
+            if variances is not None and weight_direction is not None:
+                trial_weights = weights + distance * weight_direction
+            value, _ = score(trial, trial_bias, trial_weights)
             if value > best:
                 best = value
                 selected = (distance, trial, trial_bias)
@@ -73,7 +93,7 @@ def _search(columns, labels, objective, multiclass):
             current = best
         return selected is not None
 
-    champion = (current, weights, bias)
+    champion = (current, raw, weights, bias)
     sweep = 0
     axis = np.zeros(count)
     for step in (1.0, 0.5, 0.25, 0.125, 0.0625, 0.03125, 0.015625):
@@ -95,14 +115,17 @@ def _search(columns, labels, objective, multiclass):
             # particularly for float32 inputs and discontinuous objectives.
             # Compare finalists only after rebuilding in native slot order.
             slope = _native_sum(columns, weights)
-            current = score(slope, bias)
+            current, raw = score(slope, bias, weights)
             if current > champion[0]:
-                champion = (current, weights, bias)
-    value, weights, bias = champion
-    return weights.tolist(), bias, {"evaluations": evaluations, "score": value}
+                champion = (current, raw, weights, bias)
+    rank, raw, weights, bias = champion
+    info = {"evaluations": evaluations, "score": raw}
+    if variances is not None:
+        info.update(penalty=penalty(weights), penalized_score=rank)
+    return weights.tolist(), bias, info
 
 
-def fit_pattern_tree(roots: Sequence[ValueNode], labels, *, objective: Callable, multiclass: bool = False):
+def fit_pattern_tree(roots: Sequence[ValueNode], labels, *, objective: Callable, multiclass: bool = False, l2_strength: float = 0.0):
     """Fit a native tree against a scalar, higher-is-better fit-set objective.
 
     Supply a nonempty ordered sequence of ValueNodes bound to fit probabilities,
@@ -115,6 +138,15 @@ def fit_pattern_tree(roots: Sequence[ValueNode], labels, *, objective: Callable,
     of the equal-weight pool. Coordinate polls fit signed slopes and, in binary,
     an intercept. Every objective invocation counts toward info["evaluations"].
 
+    Positive l2_strength deducts (l2_strength / N) * sum(weight² * variance)
+    from the higher-is-better score during search. Variance is measured across
+    fit rows on each binary logit column. Multiclass uses log probabilities
+    centered within each row and averages their row variances over classes.
+    The intercept has no penalty. Set the strength in units of your objective.
+    info["score"] always reports the raw objective. With positive strength,
+    info["penalty"] and info["penalized_score"] report the deduction and the
+    optimized score of the returned tree.
+
     Returns (Tree, info), including the native-order winning fit score. Use
     identity binary or scale_vector_to_sum_1 multiclass postprocessing for
     subsequent native predictions, including after rebinding to fresh rows.
@@ -124,6 +156,9 @@ def fit_pattern_tree(roots: Sequence[ValueNode], labels, *, objective: Callable,
         raise ValueError("Supply a nonempty sequence of ValueNode roots")
     if not callable(objective):
         raise TypeError("objective must be callable")
+    strength = np.asarray(l2_strength)
+    if strength.ndim != 0 or strength.dtype.kind not in "iuf" or not np.isfinite(float(strength)) or strength < 0:
+        raise ValueError("l2_strength must be a finite nonnegative scalar")
     y = np.asarray(B.to_numpy(labels) if hasattr(labels, "detach") else labels)
     if y.ndim == 2 and y.shape[1] == 1:
         y = y[:, 0]
@@ -155,7 +190,7 @@ def fit_pattern_tree(roots: Sequence[ValueNode], labels, *, objective: Callable,
                 columns.append(B.log(B.clip(prediction, eps, 1.0 - eps)))
             else:
                 columns.append(binary._feature(prediction))
-        weights, bias, info = _search(columns, labels, objective, multiclass)
+        weights, bias, info = _search(columns, labels, objective, multiclass, float(strength))
 
     parent, *children = copies
     head = WeightedLogitMeanNode(children, weights) if multiclass else BinaryAffineNode(children, weights, bias)
