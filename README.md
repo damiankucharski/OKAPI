@@ -70,6 +70,8 @@ test_brier = [
 
 For independent rows or groups, OKAPI can penalize uncertain gains over the arithmetic mean during every generation. The same objective works in derivative-free native head fitting. An optional post-search selector compares frozen trees on fresh paired validation rows. [Usage and assumptions](docs/api/core.md#penalize-uncertain-improvements-during-search)
 
+To keep an incumbent for deployment while exploring other programs, call `model.propose_offspring(count)` with a scored breeding population. Compare the fixed offers with the incumbent on a fresh confirmation block using `select_brier_replacement`. [Breeding and replacement example](docs/api/core.md#separate-breeding-from-incumbent-replacement)
+
 ## Features
 
 - Tree-based ensemble representation

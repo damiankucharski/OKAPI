@@ -1,7 +1,7 @@
 import os
 from numbers import Integral
 from pathlib import Path
-from typing import Callable, Iterable, List, Sequence, Type, Union
+from typing import Callable, Iterable, List, NamedTuple, Sequence, Type, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -35,6 +35,13 @@ def _unique_tree_mask(trees):
         mask.append(key not in seen)
         seen.add(key)
     return mask
+
+
+class OffspringProposal(NamedTuple):
+    """A final native product and the indices of its two tournament-selected parents."""
+
+    tree: Tree
+    parent_indices: tuple[int, int]
 
 
 class Okapi:
@@ -324,20 +331,55 @@ class Okapi:
             return False
         return True
 
+    def _cross_pair(self, fitnesses, tournament_size):
+        idx1, idx2 = tournament_selection_indexes(fitnesses, tournament_size, self.optimal_point)
+        children = crossover(self.population[idx1], self.population[idx2], max_depth=self.max_depth, max_nodes=self.max_nodes)
+        assert self._within_caps(children[0]) and self._within_caps(children[1])
+        return (int(idx1), int(idx2)), children
+
     def _perform_crossovers(self, fitnesses: npt.NDArray[np.float64]):
         crossover_count = 0
         target = self.population_multiplier * self.population_size
         while len(self.additional_population) < target:
-            idx1, idx2 = tournament_selection_indexes(fitnesses, self.tournament_size, self.optimal_point)
-            parent_1, parent_2 = self.population[idx1], self.population[idx2]
-            # Caps are honoured by construction: crossover draws only from points whose
-            # offspring stay within budget (value root x root is always legal, so a usable
-            # pair always exists). No retry/fallback needed; assert the invariant.
-            new_tree_1, new_tree_2 = crossover(parent_1, parent_2, max_depth=self.max_depth, max_nodes=self.max_nodes)
-            assert self._within_caps(new_tree_1) and self._within_caps(new_tree_2)
-            self.additional_population += [new_tree_1, new_tree_2]
+            _, children = self._cross_pair(fitnesses, self.tournament_size)
+            self.additional_population.extend(children)
             crossover_count += 1
         return crossover_count
+
+    def propose_offspring(self, count: int) -> list[OffspringProposal]:
+        """Generate exactly count final products from the current scored breeding pool.
+
+        Supply a nonempty population with aligned unit-interval selection fitnesses.
+        Each native crossover pair comes from two independent tournaments, clipped
+        to pool size so a single parent can self. After all crossovers, each offered
+        child undergoes ordinary structural and parameter mutation. An odd last
+        slot keeps the first child of its pair. Duplicate and unchanged proposals
+        keep their slots. Parent indices record a mating, including selfing.
+
+        This advances the engine's RNG. The caller controls fit scoring, admission
+        to the next breeding population and deployment. The method performs no
+        objective calls and preserves the current population, scores and offspring
+        buffer. The standard run_iteration loop retains its usual survival policy.
+        """
+        if isinstance(count, bool) or not isinstance(count, Integral) or count < 0:
+            raise ValueError("count must be a nonnegative integer")
+        if count == 0:
+            return []
+        fitnesses = self.fitnesses
+        if (not self.population or not isinstance(fitnesses, np.ndarray)
+                or fitnesses.shape != (len(self.population), len(self.objectives))
+                or not np.all((0 <= fitnesses) & (fitnesses <= 1))):
+            raise ValueError("Supply a nonempty breeding pool with aligned unit-interval selection fitnesses")
+        size = min(self.tournament_size, len(self.population))
+        if size < 1:
+            raise ValueError("The tournament must contain at least one parent")
+        with use_rng(self.rng):
+            proposals = []
+            while len(proposals) < count:
+                parent_indices, children = self._cross_pair(fitnesses, size)
+                for child in children[:count - len(proposals)]:
+                    proposals.append(OffspringProposal(child, parent_indices))
+            return [OffspringProposal(self._mutate_offspring(tree)[0], parents) for tree, parents in proposals]
 
     def _apply_structural_mutation(self, mutation, tree):
         """Apply the chosen variation after native eligibility and sampling."""
@@ -346,40 +388,42 @@ class Okapi:
             max_depth=self.max_depth, max_nodes=self.max_nodes,
         )
 
+    def _mutate_offspring(self, tree):
+        mutation_count = 0
+        current_tree = tree
+
+        # Structural mutation
+        if current_rng().rand() < tree.mutation_chance:
+            allowed_mutations = get_allowed_mutations(
+                tree, max_depth=self.max_depth, max_nodes=self.max_nodes,
+                point_mutation_ops=self.allowed_ops if getattr(self, "operator_point_mutation", False) else (),
+            )
+            if allowed_mutations:
+                chosen_mutation = current_rng().choice(np.array(allowed_mutations))
+                logger.trace(f"Applying structural mutation: {chosen_mutation.__name__}")
+                mutated = self._apply_structural_mutation(chosen_mutation, tree)
+                # append draws only cap-legal targets; the shrinking mutations cannot
+                # exceed a cap a within-caps parent already met. So the result is always
+                # within caps -> assert the invariant instead of reverting.
+                assert self._within_caps(mutated)
+                current_tree = mutated
+                mutation_count += 1
+
+        # Parameter mutation (applied to structurally mutated tree if any, else original)
+        if current_rng().rand() < tree.mutation_chance:
+            logger.trace("Applying parameter mutation")
+            current_tree = mutate_parameters(current_tree, mutation_strength=self.mutation_strength)
+            mutation_count += 1
+        return current_tree, mutation_count
+
     def _mutate_additional_population(self) -> int:
         mutation_count = 0
         trees_to_add = []
-
         for tree in self.additional_population:
-            current_tree = tree
-
-            # Structural mutation
-            if current_rng().rand() < tree.mutation_chance:
-                allowed_mutations = get_allowed_mutations(
-                    tree, max_depth=self.max_depth, max_nodes=self.max_nodes,
-                    point_mutation_ops=self.allowed_ops if getattr(self, "operator_point_mutation", False) else (),
-                )
-                if allowed_mutations:
-                    chosen_mutation = current_rng().choice(np.array(allowed_mutations))
-                    logger.trace(f"Applying structural mutation: {chosen_mutation.__name__}")
-                    mutated = self._apply_structural_mutation(chosen_mutation, tree)
-                    # append draws only cap-legal targets; the shrinking mutations cannot
-                    # exceed a cap a within-caps parent already met. So the result is always
-                    # within caps -> assert the invariant instead of reverting.
-                    assert self._within_caps(mutated)
-                    current_tree = mutated
-                    mutation_count += 1
-
-            # Parameter mutation (applied to structurally mutated tree if any, else original)
-            if current_rng().rand() < tree.mutation_chance:
-                logger.trace("Applying parameter mutation")
-                current_tree = mutate_parameters(current_tree, mutation_strength=self.mutation_strength)
-                mutation_count += 1
-
-            # Only add if any mutation occurred
+            current_tree, count = self._mutate_offspring(tree)
+            mutation_count += count
             if current_tree is not tree:
                 trees_to_add.append(current_tree)
-
         self.additional_population.extend(trees_to_add)
         return mutation_count
 
