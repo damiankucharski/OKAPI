@@ -68,6 +68,8 @@ test_brier = [
 ]
 ```
 
+For independent rows or groups, OKAPI can penalize uncertain gains over the arithmetic mean during every generation. The same objective works in derivative-free native head fitting. An optional post-search selector compares frozen trees on fresh paired validation rows. [Usage and assumptions](docs/api/core.md#penalize-uncertain-improvements-during-search)
+
 ## Features
 
 - Tree-based ensemble representation
