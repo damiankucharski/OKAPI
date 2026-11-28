@@ -84,6 +84,9 @@ class Okapi:
         reuse_survivor_fitness: bool = False,
         operator_point_mutation: bool = False,
         selection_fitness_decimals: int | None = 3,
+        paired_row_loss: Callable | None = None,
+        paired_z: float = 1.0,
+        paired_groups=None,
     ):
         """
         Initialize the Okapi evolutionary algorithm.
@@ -107,6 +110,14 @@ class Okapi:
             selection_fitness_decimals: Round fitness for parent and survivor selection to this many
                 decimal places (0 to 15). The historical default is 3. None retains the raw float64
                 objective values. The scoring and prediction APIs keep their original precision.
+            paired_row_loss: Opt-in per-row loss replacing the default predictive objective
+                throughout training with gain over the native arithmetic mean minus paired_z
+                times its paired standard error. The callback takes (prediction, ground_truth)
+                and returns one loss per row. Supply the default maximization objective.
+            paired_z: Nonnegative strength of the in-search standard-error penalty.
+            paired_groups: Optional independent group IDs aligned to the training rows.
+                Each group counts equally. Use selection_fitness_decimals=None to preserve
+                the unrounded ordering of the bounded scores used for parent and survivor selection.
             mutation_strength: Controls magnitude of parameter mutations (default 0.1).
             Higher values cause larger parameter changes during evolution.
             max_depth: Optional hard cap on tree depth (levels; root = 1, a value->op->value
@@ -156,6 +167,17 @@ class Okapi:
         self.train_tensors, self.gt_tensor = self._build_train_tensors(preds_source, gt_path)
         self.ids, self.models = list(self.train_tensors.keys()), list(self.train_tensors.values())
         self._validate_input()
+        self.paired_fitness_ = None
+        if paired_row_loss is not None:
+            from okapi.paired_fitness import PairedGainFitness, arithmetic_mean_tree
+
+            if tuple(objective_functions) != (average_precision_fitness,) or tuple(objectives) != (maximize,):
+                raise ValueError("paired_row_loss supplies its own maximizing predictive objective")
+            baseline = arithmetic_mean_tree(self.train_tensors).predict()
+            self.paired_fitness_ = PairedGainFitness(baseline, self.gt_tensor, paired_row_loss, z=paired_z, groups=paired_groups)
+            self.objective_functions = (self.paired_fitness_,)
+        elif paired_z != 1.0 or paired_groups is not None:
+            raise ValueError("paired_z and paired_groups require paired_row_loss")
 
         # state
         self.should_stop = False
@@ -226,6 +248,10 @@ class Okapi:
 
     def _selection_fitnesses(self, trees):
         scores = self._calculate_fitnesses(trees)
+        if getattr(self, "paired_fitness_", None) is not None:
+            # Native proximity selection expects [0, 1]. A fixed increasing map
+            # preserves ordering across generations, including cached survivors.
+            scores = .5 + np.arctan(scores) / np.pi
         decimals = self.selection_fitness_decimals
         return scores if decimals is None else scores.round(decimals)
 
@@ -492,6 +518,16 @@ class Okapi:
                 raise ValueError(f"Ground truth tensor has different shape than input tensors: {shapes[0]} != {B.shape(self.gt_tensor)}")
 
         logger.info("Input validation successful")
+
+    def select_tree_against_mean(self, validation_tensors, labels, row_loss, **options):
+        """Compare the frozen search frontier with the provider mean on fresh paired validation rows.
+
+        Return one fit-bound native tree and a MeanGuardDecision. See
+        okapi.mean_guard.select_tree_against_mean for grouping and noise-calibration options.
+        """
+        from okapi.mean_guard import select_tree_against_mean
+
+        return select_tree_against_mean(self.pareto_trees, self.train_tensors, validation_tensors, labels, row_loss, **options)
 
     @property
     def pareto_trees(self) -> List[Tree]:
