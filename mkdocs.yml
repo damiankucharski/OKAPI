@@ -44,8 +44,12 @@ nav:
     - Core: api/core.md
     - Nodes: api/nodes.md
     - Operators: api/operators.md
+    - Native fitting: api/native-fitting.md
     - Evolution: api/evolution.md
     - Backend: api/backend.md
     - Utilities: api/utilities.md
+  - Research:
+    - Fusion tree study: research/ensemble-fusion/index.md
+    - Evidence index: research/ensemble-fusion/evidence.md
   - Development: 
     - Contributing: development/contributing.md

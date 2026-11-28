@@ -57,6 +57,8 @@ predictions = best_tree.root.value
 
 Full API documentation: [https://damiankucharski.github.io/OKAPI/](https://damiankucharski.github.io/OKAPI/)
 
+Read the [illustrated study of OKAPI and FusionBench](docs/research/ensemble-fusion/study.pdf) for the matched comparisons with logistic stacking, the validation-overfitting controls and the limits of replacing ensembles with single networks. The [research index](docs/research/ensemble-fusion/index.md) includes the source, evidence and reproduction commands.
+
 ## Paper
 
 OKAPI: Automated Ensemble Design Through Genetic Programming

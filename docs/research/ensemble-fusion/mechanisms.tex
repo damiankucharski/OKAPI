@@ -1,0 +1,129 @@
+\section{What a tree search can find, explain, and compile}
+\label{sec:mechanism-history}
+
+\subsection{Separating an inaccessible rule from a poor rule}
+
+For binary providers with identity postprocessing, thresholding a tree built
+from MIN and MAX turns its gates into AND and OR. The sets of providers above
+threshold on which the tree is positive form an upward-closed family.
+Conversely, taking the maximum over the minima of its minimal accepted sets
+constructs an attaining tree. Sorting each observation's provider scores
+expresses its squared loss as a sum of increments on those sets. One minimum
+cut therefore gives an exact empirical optimum over \emph{all sizes} for this
+grammar. Eight providers require 256 subset vertices. On a two-pathway problem
+with 128 fit labels, the exact fit winner reached .09732 IID positive-class
+Brier, native GP .21254, arithmetic averaging .15528, ranked-prefix Top-$N$
+.16191, and logistic stacking .13997. Under the prespecified detector shift,
+the exact winner's advantage over stacking fell from .04265 to .00176.
+The certificate concerns empirical optimization within the stated grammar.
+\href{https://github.com/damiankucharski/fusionbench/blob/1f12dbf/docs/ensemble-study/search-regret/continuous.md}{Cut construction, data and population controls.}
+
+The obstruction was observable in actual populations. On a separate
+four-provider problem the empirical optimum equalled the generating rule in
+all 12 banks, yet neither rounded nor unrounded GP found it in 24 starts per
+precision at 400 evaluations. At generation 15 in a further experiment,
+exhausting the legal parent and physical swap choices in 32 populations found
+zero next crossovers capable of producing the two-pathway target. On eight
+anonymous inputs, changing the initial topology while matching tree size,
+inputs and operators increased exact recoveries from 11/24 chain starts to
+21/24 branched starts. Only one branched start already contained the answer.
+Twelve of the twenty later branched discoveries had a productive crossover
+available at initialization. The other eight required intervening changes.
+The same topology comparison on the fixed 19-scenario suite gave a full-class
+IID Brier difference of $+.00044$ (paired 95\% interval
+$[-.00286,.00374]$).
+\href{https://github.com/damiankucharski/fusionbench/blob/fbeae0d/docs/ensemble-study/selection-precision/README.md}{Exact search and precision.}
+\href{https://github.com/damiankucharski/fusionbench/blob/31466b1/docs/ensemble-study/semantic-donors/README.md}{Legal-swap enumeration.}
+\href{https://github.com/damiankucharski/fusionbench/blob/d79f228/docs/ensemble-study/seed-geometry/README.md}{Matched starters and transfer.}
+\href{https://github.com/damiankucharski/OKAPI/blob/47029ef/experiments/initial_crossover/README.md}{Independent native crossover replay.}
+
+\subsection{Which operator changes matter?}
+
+Replacing an existing operator family while preserving its ordered arguments
+tested a point mutation previously deferred in OKAPI. Enabling the native
+extension moved mean full-class IID Brier from .26839 to .25947 across 19
+scenarios. Stacking reached .22874. On fresh banks a fourth mutation
+opportunity returned either the actual retyped tree or its unchanged
+genotype, while consuming the same proposal randomness at that event.
+Retyping improved Brier by .01202 relative to this control at 1,200 fitness
+evaluations (95\% interval $.00648$--$.01756$). On the nine registered shifts
+the interval included zero. A separate structural-identity repair stopped
+different programs being merged merely because their printed node sequences
+matched. In 48 matched MIN/MAX runs it changed five search paths at 300 calls
+and changed none of the selected winners. Correct identities matter even when
+a bounded search does not improve.
+\href{https://github.com/damiankucharski/fusionbench/blob/d4c4bd1/docs/ensemble-study/full-suite-point/README.md}{Registered suite.}
+\href{https://github.com/damiankucharski/fusionbench/blob/b93281d/docs/ensemble-study/mutation-opportunity/README.md}{Slot-matched controls.}
+\href{https://github.com/damiankucharski/fusionbench/blob/949ec0d/docs/ensemble-study/search-regret/structural-key/README.md}{Collision replay against the empirical optimum.}
+
+An operator's frequency does not establish its predictive contribution. In a
+12-seed rescue circuit, retaining a MAX update repaired 857 decisions and
+introduced 168 errors per 8,192 held-out examples on average, relative to
+bypassing the update. Duplicating the update kept the
+function unchanged and made either single bypass have zero effect. A joint
+bypass recovered the original effect for the same operand order. In a
+separate switching experiment the algorithm recorded ancestry, then bypassed
+all genuinely inherited occurrences in each frozen winner. On the FAR law,
+excess positive-class Brier rose from .00267 intact to .02437 on fresh data.
+Resetting just the inherited cutoffs gave .01382. Together these interventions
+locate the operation and parameter responsible for the measured change.
+\href{https://github.com/damiankucharski/OKAPI/blob/9d06b7a/experiments/README.md}{Duplicate intervention and operand order.}
+\href{https://github.com/damiankucharski/fusionbench/blob/eea68d5/docs/ensemble-study/search-regret/gate-necessity/README.md}{Inheritance, bypass and reset.}
+
+\subsection{When one network can replace the ensemble}
+
+A binary sigmoid expert with known affine logit on a shared raw input can be
+inlined into a circuit. Monotonicity moves the final sigmoid outside a MIN/MAX
+tree, and $\max(a,b)=b+\mathrm{ReLU}(a-b)$ implements each binary maximum
+(with the analogous identity for minimum). Eight compiled GP trees reproduced
+their probabilities within $5.56\times10^{-16}$ on 4,096 held-out rows per
+tree. Only one of the 17 natural binary gates disappeared. Their accuracy
+remained 84.86\%, while the known median of the same local experts achieved
+98.45\%. This route needs the local affine maps and the same coordinates at
+deployment. With opaque providers, a small fusion circuit can still require
+all of their predictions. For example, 66 ReLUs exactly average 10,395
+perfect-matching trees on 12 provider scores when exactly two or three
+inputs are high. A fourth high input can activate two disjoint pairs and
+cause double counting. On eight inputs with a uniform matching prior the
+pair-only formula then gives $6/7$ where the true value is $27/35$.
+\href{https://github.com/damiankucharski/OKAPI/blob/35ca8e6/okapi/lattice.py}{Native compiler.}
+\href{https://github.com/damiankucharski/fusionbench/blob/d10b51e/docs/ensemble-study/lattice-compile/README.md}{Prediction and gate replay.}
+\href{https://github.com/damiankucharski/fusionbench/blob/8f0ba19/docs/ensemble-study/search-regret/matching-compression/README.md}{Exact mixture, counterexample and higher-order correction.}
+
+Recovery from raw observations depends on whether the latent axes can be identified. On
+two-pathway data, estimating axes from 4,096 unlabeled mixtures by independent
+component analysis and choosing a signed read-once circuit with 32 task
+labels reached 93.5\% accuracy across twelve rotated bimodal problems,
+against 79.4\% for an MLP. Replacing the latent factors by isotropic Gaussians
+with matched covariance made all rotations equally consistent with the unlabeled distribution. Circuit
+accuracy fell to 66.6\%, against 72.4\% for the MLP. An out-of-family XOR target also exposed the imposed grammar: with 128
+labels, the read-once circuit reached 71.1\% versus 94.4\% for a sign-table
+lookup.
+\href{https://github.com/damiankucharski/fusionbench/blob/55de703/docs/ensemble-study/README.md}{Blind reconstruction, label budgets and XOR control.}
+
+\paragraph{Further checks for reconstruction.}
+Three other lines delimit what can be inferred from recorded predictions.
+First, two individually calibrated providers can require a \emph{negative}
+logit coefficient when they share class-conditional noise. A signed stack
+scored .08481 against .11304 for nonnegative slopes in 24 banks.
+Second, the extreme consistent rules in the full noiseless monotone Boolean
+class give a minimax midpoint with positive-class Brier $D/4$ on disagreement
+mass $D$. Four candidate coordinate projections break the required closure.
+Third, estimating a target context mixture improved frozen-tree selection by
+.01479 Brier when within-context labels stayed stable, but worsened it by
+.02754 when labels reversed with identical observed target predictions.
+These give concrete checks on slope constraints, feasible function classes
+and access to target labels.
+\href{https://github.com/damiankucharski/fusionbench/blob/62afd10/docs/ensemble-study/calibrated-suppressor/README.md}{Signed pooling.}
+\href{https://github.com/damiankucharski/fusionbench/blob/d4b9c98/docs/ensemble-study/monotone-envelope/README.md}{Extremal rules.}
+\href{https://github.com/damiankucharski/fusionbench/blob/e529e8c/docs/ensemble-study/frozen-pair-ranking/README.md}{Observable drift and silent reversal.}
+
+The linked extensions test whether a purported reference copies its input,
+how paid labels expose silent failures, and whether fewer fusion operations
+save actual provider calls or wall time. On 16 focal pruned trees only two
+dropped a provider. An exact softmax router was slower than the full pool at
+batch size one in all twelve tested layouts.
+\href{https://github.com/damiankucharski/fusionbench/blob/27edd41/docs/ensemble-study/reference-copy/README.md}{Reference-copy ambiguity.}
+\href{https://github.com/damiankucharski/OKAPI/blob/3f64a16/experiments/paired_label_audit/README.md}{Paired label auditing.}
+\href{https://github.com/damiankucharski/fusionbench/blob/9af5f79/docs/ensemble-study/prune-frozen-mix/README.md}{Pruning and provider counts.}
+\href{https://github.com/damiankucharski/fusionbench/blob/2204351/docs/ensemble-study/softmax-routing/README.md}{Decision routing and timings.}

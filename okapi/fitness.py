@@ -1,14 +1,12 @@
 from functools import partial
 from typing import Literal
 
-import torch
-
 from okapi.globals import BACKEND as B
 from okapi.lib_types import Tensor
 from okapi.tree import Tree
 
 
-def _infer_num_classes(gt: torch.Tensor, task: str) -> int:
+def _infer_num_classes(gt: Tensor, task: str) -> int:
     """
     Infer the number of classes from the ground truth tensor based on the task.
 
@@ -57,6 +55,7 @@ def average_precision_fitness(
     Returns:
         Average Precision score as a float between 0 and 1 (higher is better)
     """
+    import torch
     from torchmetrics.classification import AveragePrecision
 
     with torch.no_grad():
@@ -120,6 +119,7 @@ def roc_auc_score_fitness(
     Returns:
         ROC AUC score as a float between 0 and 1 (higher is better)
     """
+    import torch
     from torchmetrics.classification import AUROC
 
     with torch.no_grad():
@@ -177,6 +177,7 @@ def accuracy_fitness(
     Returns:
         Accuracy score as a float between 0 and 1 (higher is better)
     """
+    import torch
     from torchmetrics.classification import Accuracy
 
     with torch.no_grad():

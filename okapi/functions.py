@@ -17,7 +17,12 @@ def scale_vector_to_sum_1(tensor: Tensor):
     Returns:
         Normalized tensor where each vector sums to 1
     """
-    return tensor / B.unsqueeze(B.sum(tensor, axis=-1), -1)
+    mass = B.unsqueeze(B.sum(tensor, axis=-1), -1)
+    # Minima of disjoint supports can have no class mass. Give those rows
+    # uniform probabilities and keep the existing scale for every other row.
+    empty = mass == 0
+    counts = tensor + empty
+    return counts / B.unsqueeze(B.sum(counts, axis=-1), -1)
 
 
 def set_multiclass_postprocessing():

@@ -6,6 +6,7 @@ with simpler names for easier importing and usage.
 """
 
 from okapi.node import (
+    BinaryAffineNode,
     CloseThresholdNode,
     FarThresholdNode,
     LogitMeanNode,
@@ -25,3 +26,4 @@ FAR_THRESHOLD = FarThresholdNode
 CLOSE_THRESHOLD = CloseThresholdNode
 LOGIT_MEAN = LogitMeanNode
 WEIGHTED_LOGIT_MEAN = WeightedLogitMeanNode
+BINARY_AFFINE = BinaryAffineNode
